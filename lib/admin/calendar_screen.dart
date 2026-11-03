@@ -190,7 +190,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                   child: Text('No sessions on this day.'))),
                         for (final g in _byTime(shown)) ...[
                           Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                            padding: const EdgeInsets.fromLTRB(16, 14, 16, 2),
                             child: Text(g.key,
                                 style: Theme.of(context)
                                     .textTheme
@@ -198,7 +198,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                     ?.copyWith(fontWeight: FontWeight.bold)),
                           ),
                           for (final s in g.value) _slotTile(s),
-                          const Divider(height: 8),
                         ],
                       ],
                     ),
@@ -233,22 +232,32 @@ class _CalendarScreenState extends State<CalendarScreen> {
     final taken = _takenCount(s);
     final cap = s['capacity'] as int;
     final full = taken >= cap;
+    // One compact line: coach name, then the green bar, then the count.
     return Opacity(
       opacity: cancelled ? 0.5 : 1,
-      child: ListTile(
-        dense: true,
-        contentPadding: const EdgeInsets.only(left: 32, right: 16),
-        title: Text(_coachNames[s['coach_id']] ?? '',
-            style: Theme.of(context).textTheme.bodyLarge),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 4),
-          child: LinearProgressIndicator(
-              value: cap == 0 ? 0 : (taken / cap).clamp(0, 1).toDouble()),
-        ),
-        trailing: Text(
-          cancelled ? 'Cancelled' : (full ? 'Full $taken/$cap' : '$taken/$cap'),
-        ),
+      child: InkWell(
         onTap: () => _openSlot(s),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(32, 9, 16, 9),
+          child: Row(children: [
+            SizedBox(
+              width: 130,
+              child: Text(_coachNames[s['coach_id']] ?? '',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyLarge),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: LinearProgressIndicator(
+                  value: cap == 0 ? 0 : (taken / cap).clamp(0, 1).toDouble()),
+            ),
+            const SizedBox(width: 12),
+            Text(cancelled
+                ? 'Cancelled'
+                : (full ? 'Full $taken/$cap' : '$taken/$cap')),
+          ]),
+        ),
       ),
     );
   }

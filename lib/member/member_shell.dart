@@ -25,8 +25,6 @@ class MemberShell extends StatelessWidget {
               icon: Icon(Icons.calendar_month_outlined),
               selectedIcon: Icon(Icons.calendar_month),
               label: 'Book'),
-          NavigationDestination(
-              icon: Icon(Icons.qr_code_scanner), label: 'Check in'),
           NavigationDestination(icon: Icon(Icons.history), label: 'History'),
           NavigationDestination(
               icon: Icon(Icons.sports_gymnastics), label: 'Workouts'),

@@ -20,7 +20,6 @@ import 'coach/qr_screen.dart';
 import 'coach/schedule_screen.dart';
 import 'coach/today_screen.dart';
 import 'member/gym_book_screen.dart';
-import 'member/checkin_screen.dart';
 import 'member/equipment_screen.dart';
 import 'member/history_screen.dart';
 import 'member/home_screen.dart';
@@ -132,11 +131,6 @@ GoRouter buildRouter(AppSession session) {
             GoRoute(
                 path: '/member/book',
                 builder: (_, _) => const BookHub()),
-          ]),
-          StatefulShellBranch(routes: [
-            GoRoute(
-                path: '/member/checkin',
-                builder: (_, _) => const CheckInScreen()),
           ]),
           StatefulShellBranch(routes: [
             GoRoute(

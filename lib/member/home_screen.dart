@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../shared/avatar.dart';
 import '../shared/common.dart';
+import 'checkin_screen.dart';
 import 'weight_chart.dart';
 import 'workouts_screen.dart';
 
@@ -270,6 +271,9 @@ class HomeScreen extends StatelessWidget {
                   ),
                 ),
               NextWorkoutCard(plan: h.workout, reload: reload),
+              if (h.coachName != null || h.pass != null)
+                // Gym hours can be booked with a Monthly Pass or a coach (db/19).
+                CheckInCard(hasCoach: h.coachName != null, reload: reload),
               _heading(context, 'Next session'),
               if (h.upcoming.isEmpty)
                 const Card(child: ListTile(title: Text('Nothing booked yet')))

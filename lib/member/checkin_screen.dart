@@ -8,18 +8,132 @@ import '../shared/common.dart';
 final _uuid = RegExp(
     r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}');
 
-class CheckInScreen extends StatefulWidget {
-  const CheckInScreen({super.key});
+enum CheckInKind { coach, gym }
+
+/// Home card: "Check in for" with a Coach session button (members with a coach)
+/// and a Gym button (everyone who can book gym time: a coach or a Monthly Pass).
+class CheckInCard extends StatelessWidget {
+  const CheckInCard({super.key, required this.hasCoach, required this.reload});
+  final bool hasCoach;
+  final Future<void> Function() reload;
 
   @override
-  State<CheckInScreen> createState() => _CheckInScreenState();
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    Future<void> go(CheckInKind kind) async {
+      if (await checkIn(context, kind)) await reload();
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Icon(Icons.qr_code_scanner, color: theme.colorScheme.primary),
+              const SizedBox(width: 8),
+              Text('Check in for', style: theme.textTheme.titleMedium),
+            ]),
+            const SizedBox(height: 4),
+            Text(
+                'Opens 30 minutes before your booking and closes when it ends.',
+                style: theme.textTheme.bodySmall),
+            const SizedBox(height: 12),
+            Row(children: [
+              if (hasCoach) ...[
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: () => go(CheckInKind.coach),
+                    icon: const Icon(Icons.person),
+                    label: const Text('Coach session'),
+                    style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
+                  ),
+                ),
+                const SizedBox(width: 12),
+              ],
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: () => go(CheckInKind.gym),
+                  icon: const Icon(Icons.fitness_center),
+                  label: const Text('Gym'),
+                  style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
+                ),
+              ),
+            ]),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
-class _CheckInScreenState extends State<CheckInScreen> {
+/// Opens the scanner, checks in for the chosen kind and shows the result.
+/// Returns true when the check-in worked.
+Future<bool> checkIn(BuildContext context, CheckInKind kind) async {
+  final raw = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => _ScannerPage(kind: kind)));
+  if (raw == null || !context.mounted) return false;
+
+  final token = _uuid.firstMatch(raw)?.group(0);
+  String message;
+  var ok = false;
+  if (token == null) {
+    message = 'That is not a RepClub QR code.';
+  } else {
+    try {
+      final r = kind == CheckInKind.gym
+          ? await db.rpc('gym_check_in', params: {'p_token': token})
+          : await db.rpc('qr_check_in', params: {'p_qr_token': token});
+      final left = r is Map ? r['credits_left'] : null;
+      ok = true;
+      message = kind == CheckInKind.gym
+          ? 'You are checked in at the gym. Enjoy your workout!'
+          : left == null
+              ? 'You are checked in. Enjoy your session!'
+              : 'You are checked in. Credits left: $left';
+    } on PostgrestException catch (e) {
+      message = e.message;
+      if (e.message == 'This QR code is not valid') {
+        message = kind == CheckInKind.gym
+            ? 'This is not the gym door QR code. For a coach session, tap "Coach session" instead.'
+            : 'This is not your coach\'s QR code. For gym time, tap "Gym" instead.';
+      }
+    } catch (_) {
+      message = 'Something went wrong. Try again.';
+    }
+  }
+  if (!context.mounted) return ok;
+
+  final theme = Theme.of(context);
+  await showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      icon: Icon(ok ? Icons.check_circle : Icons.error_outline,
+          size: 48,
+          color: ok ? theme.colorScheme.primary : theme.colorScheme.error),
+      title: Text(ok ? 'Checked in' : 'Could not check in'),
+      content: Text(message, textAlign: TextAlign.center),
+      actions: [
+        FilledButton(
+            onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+      ],
+    ),
+  );
+  return ok;
+}
+
+class _ScannerPage extends StatefulWidget {
+  const _ScannerPage({required this.kind});
+  final CheckInKind kind;
+
+  @override
+  State<_ScannerPage> createState() => _ScannerPageState();
+}
+
+class _ScannerPageState extends State<_ScannerPage> {
   final _paste = TextEditingController();
-  bool _busy = false;
-  String? _message;
-  bool _success = false;
+  bool _done = false;
 
   @override
   void dispose() {
@@ -27,163 +141,58 @@ class _CheckInScreenState extends State<CheckInScreen> {
     super.dispose();
   }
 
-  Future<void> _scan() async {
-    final code = await Navigator.of(context).push<String>(
-        MaterialPageRoute(builder: (_) => const _ScannerPage()));
-    if (code != null) await _checkIn(code);
-  }
-
-  Future<void> _checkIn(String raw) async {
-    final token = _uuid.firstMatch(raw)?.group(0);
-    if (token == null) {
-      setState(() {
-        _success = false;
-        _message = 'That is not a RepClub QR code.';
-      });
-      return;
-    }
-    setState(() {
-      _busy = true;
-      _message = null;
-    });
-    try {
-      // The gym door QR first; if the code is not the gym's, it may be a coach's.
-      dynamic r;
-      try {
-        r = await db.rpc('gym_check_in', params: {'p_token': token});
-      } on PostgrestException catch (e) {
-        if (e.message != 'This QR code is not valid') rethrow;
-        r = await db.rpc('qr_check_in', params: {'p_qr_token': token});
-      }
-      final left = (r is Map ? r['credits_left'] : null);
-      setState(() {
-        _success = true;
-        _message = (r is Map && r['walk_in'] == true)
-            ? 'Welcome! Your gym visit is recorded. No credit used.'
-            : left == null
-            ? 'You are checked in. Enjoy your session!'
-            : 'You are checked in. Credits left: $left';
-      });
-    } on PostgrestException catch (e) {
-      setState(() {
-        _success = false;
-        _message = e.message;
-      });
-    } catch (_) {
-      setState(() {
-        _success = false;
-        _message = 'Something went wrong. Try again.';
-      });
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+  void _finish(String value) {
+    if (_done) return;
+    _done = true;
+    Navigator.of(context).pop(value);
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final gym = widget.kind == CheckInKind.gym;
     return Scaffold(
-      appBar: AppBar(title: const Text('Check in')),
-      body: ListView(
-        padding: const EdgeInsets.all(24),
+      appBar: AppBar(title: Text(gym ? 'Scan gym door QR' : 'Scan coach QR')),
+      body: Column(
         children: [
-          const SizedBox(height: 24),
-          Icon(Icons.qr_code_scanner,
-              size: 96, color: theme.colorScheme.primary),
-          const SizedBox(height: 16),
-          Text('Scan the QR code at the gym door, or your coach\'s QR code, when you arrive.',
-              textAlign: TextAlign.center, style: theme.textTheme.titleMedium),
-          const SizedBox(height: 4),
-          const Text(
-              'Check-in opens 30 minutes before your booked session or gym hour and closes when it ends.',
-              textAlign: TextAlign.center),
-          const SizedBox(height: 24),
-          FilledButton.icon(
-            onPressed: _busy ? null : _scan,
-            icon: const Icon(Icons.camera_alt),
-            label: const Text('Scan QR code'),
-            style: FilledButton.styleFrom(minimumSize: const Size(0, 52)),
-          ),
-          if (_busy) ...[
-            const SizedBox(height: 24),
-            const Center(child: CircularProgressIndicator()),
-          ],
-          if (_message != null) ...[
-            const SizedBox(height: 24),
-            Card(
-              color: (_success ? theme.colorScheme.primary : theme.colorScheme.error)
-                  .withValues(alpha: 0.15),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(children: [
-                  Icon(_success ? Icons.check_circle : Icons.error_outline,
-                      color: _success
-                          ? theme.colorScheme.primary
-                          : theme.colorScheme.error),
-                  const SizedBox(width: 12),
-                  Expanded(child: Text(_message!)),
-                ]),
+          Expanded(
+            child: MobileScanner(
+              onDetect: (capture) {
+                for (final b in capture.barcodes) {
+                  final v = b.rawValue;
+                  if (v != null) return _finish(v);
+                }
+              },
+              errorBuilder: (context, error) => const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Text(
+                      'The camera could not start. Allow camera access for RepClub in your phone settings.',
+                      textAlign: TextAlign.center),
+                ),
               ),
             ),
-          ],
-          if (kDebugMode) ...[
-            const SizedBox(height: 40),
-            const Divider(),
-            Text('Testing only (hidden in the real app)',
-                style: theme.textTheme.labelSmall),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _paste,
-              decoration: const InputDecoration(
-                  labelText: 'Paste coach QR code text',
-                  border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 8),
-            OutlinedButton(
-              onPressed: _busy ? null : () => _checkIn(_paste.text),
-              child: const Text('Check in with pasted code'),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _ScannerPage extends StatefulWidget {
-  const _ScannerPage();
-
-  @override
-  State<_ScannerPage> createState() => _ScannerPageState();
-}
-
-class _ScannerPageState extends State<_ScannerPage> {
-  bool _done = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Scan coach QR')),
-      body: MobileScanner(
-        onDetect: (capture) {
-          if (_done) return;
-          for (final b in capture.barcodes) {
-            final v = b.rawValue;
-            if (v != null) {
-              _done = true;
-              Navigator.of(context).pop(v);
-              return;
-            }
-          }
-        },
-        errorBuilder: (context, error) => const Center(
-          child: Padding(
-            padding: EdgeInsets.all(24),
-            child: Text(
-                'The camera could not start. Allow camera access for RepClub in your phone settings.',
-                textAlign: TextAlign.center),
           ),
-        ),
+          // Emulator testing only (the emulator has no real camera). Hidden in the real app.
+          if (kDebugMode)
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(children: [
+                Expanded(
+                  child: TextField(
+                    controller: _paste,
+                    decoration: const InputDecoration(
+                        labelText: 'Testing: paste QR code text',
+                        isDense: true,
+                        border: OutlineInputBorder()),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                    onPressed: () => _finish(_paste.text),
+                    child: const Text('Use')),
+              ]),
+            ),
+        ],
       ),
     );
   }

@@ -46,7 +46,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
           .select('id, coach_id, starts_at, capacity, is_cancelled, bookings(status)')
           .gte('starts_at', start.toUtc().toIso8601String())
           .lt('starts_at', end.toUtc().toIso8601String())
-          .order('starts_at');
+          .order('starts_at', ascending: true);
       final coaches =
           await db.from('profiles').select('id, full_name').eq('role', 'COACH');
       if (!mounted) return;
@@ -188,7 +188,18 @@ class _CalendarScreenState extends State<CalendarScreen> {
                               padding: EdgeInsets.all(32),
                               child: Center(
                                   child: Text('No sessions on this day.'))),
-                        for (final s in shown) _slotTile(s),
+                        for (final g in _byTime(shown)) ...[
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                            child: Text(g.key,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleMedium
+                                    ?.copyWith(fontWeight: FontWeight.bold)),
+                          ),
+                          for (final s in g.value) _slotTile(s),
+                          const Divider(height: 8),
+                        ],
                       ],
                     ),
             ),
@@ -198,8 +209,26 @@ class _CalendarScreenState extends State<CalendarScreen> {
     );
   }
 
+  /// Sessions grouped by start time (earliest first); coaches A-Z within a time.
+  List<MapEntry<String, List<Map<String, dynamic>>>> _byTime(
+      List<Map<String, dynamic>> slots) {
+    final sorted = [...slots]..sort((a, b) {
+        final t = DateTime.parse(a['starts_at'] as String)
+            .compareTo(DateTime.parse(b['starts_at'] as String));
+        if (t != 0) return t;
+        return (_coachNames[a['coach_id']] ?? '')
+            .toLowerCase()
+            .compareTo((_coachNames[b['coach_id']] ?? '').toLowerCase());
+      });
+    final groups = <String, List<Map<String, dynamic>>>{};
+    for (final s in sorted) {
+      final time = showTime(DateTime.parse(s['starts_at'] as String).toLocal());
+      groups.putIfAbsent(time, () => []).add(s);
+    }
+    return groups.entries.toList();
+  }
+
   Widget _slotTile(Map<String, dynamic> s) {
-    final starts = DateTime.parse(s['starts_at'] as String).toLocal();
     final cancelled = s['is_cancelled'] as bool;
     final taken = _takenCount(s);
     final cap = s['capacity'] as int;
@@ -207,9 +236,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
     return Opacity(
       opacity: cancelled ? 0.5 : 1,
       child: ListTile(
-        leading: Text(showTime(starts),
-            style: Theme.of(context).textTheme.titleMedium),
-        title: Text(_coachNames[s['coach_id']] ?? ''),
+        dense: true,
+        contentPadding: const EdgeInsets.only(left: 32, right: 16),
+        title: Text(_coachNames[s['coach_id']] ?? '',
+            style: Theme.of(context).textTheme.bodyLarge),
         subtitle: Padding(
           padding: const EdgeInsets.only(top: 4),
           child: LinearProgressIndicator(
@@ -451,7 +481,7 @@ class _SlotDetailScreenState extends State<SlotDetailScreen> {
         .from('bookings')
         .select('id, status, member_id')
         .eq('slot_id', widget.slotId)
-        .order('created_at');
+        .order('created_at', ascending: true);
     final ids = [for (final r in rows) r['member_id'] as String];
     final names = <String, String>{};
     if (ids.isNotEmpty) {
@@ -655,7 +685,7 @@ class _MemberPicker extends StatelessWidget {
               .select('id, full_name')
               .inFilter('id', ids)
               .eq('is_active', true)
-              .order('full_name');
+              .order('full_name', ascending: true);
           return List<Map<String, dynamic>>.from(pr);
         },
         builder: (context, rows, reload) {
@@ -699,7 +729,7 @@ class _PickSlotScreen extends StatelessWidget {
               .gte('starts_at', DateTime.now().toUtc().toIso8601String())
               .lt('starts_at',
                   DateTime.now().add(const Duration(days: 21)).toUtc().toIso8601String())
-              .order('starts_at');
+              .order('starts_at', ascending: true);
           return List<Map<String, dynamic>>.from(rows);
         },
         builder: (context, rows, reload) {

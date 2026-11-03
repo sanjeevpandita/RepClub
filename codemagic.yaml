@@ -1,0 +1,70 @@
+# Codemagic builds the iOS app on its Macs (we develop on Windows).
+# Start builds by hand in the Codemagic website (no automatic triggers).
+#
+# Secrets are NOT in this file. They live in Codemagic > Team settings >
+# Environment variables, in a group called "repclub_ios":
+#   APP_STORE_CONNECT_ISSUER_ID       (App Store Connect API key: Issuer ID)
+#   APP_STORE_CONNECT_KEY_IDENTIFIER  (App Store Connect API key: Key ID)
+#   APP_STORE_CONNECT_PRIVATE_KEY     (contents of the AuthKey_XXXX.p8 file)
+#   CERTIFICATE_PRIVATE_KEY           (private key for the Apple distribution certificate)
+# All four are marked "Secret".
+
+workflows:
+  # 1. Compile check: builds for the iPhone simulator. Needs no Apple account.
+  #    The zipped Runner.app can be uploaded to appetize.io to try the app in a browser.
+  ios-simulator:
+    name: iOS check (simulator)
+    instance_type: mac_mini_m2
+    max_build_duration: 45
+    environment:
+      flutter: 3.47.8
+      xcode: latest
+    scripts:
+      - name: Get Flutter packages
+        script: flutter pub get
+      - name: Build for simulator
+        script: flutter build ios --simulator --debug
+      - name: Zip the app
+        script: cd build/ios/iphonesimulator && zip -r "$CM_BUILD_DIR/RepClub-simulator.zip" Runner.app
+    artifacts:
+      - RepClub-simulator.zip
+
+  # 2. Real build: signs the app and sends it to TestFlight.
+  ios-testflight:
+    name: iOS to TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      groups:
+        - repclub_ios
+      vars:
+        BUNDLE_ID: com.repclub.app
+      flutter: 3.47.8
+      xcode: latest
+    scripts:
+      - name: Set up keychain
+        script: keychain initialize
+      - name: Fetch (or create) signing certificate and profile
+        script: app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
+      - name: Add certificate to keychain
+        script: keychain add-certificates
+      - name: Use signing profile in the Xcode project
+        script: xcode-project use-profiles
+      - name: Get Flutter packages
+        script: flutter pub get
+      - name: Build the iOS app (.ipa)
+        # Version name comes from pubspec.yaml; the build number goes up with every Codemagic build
+        # (TestFlight refuses a build number it has already seen).
+        script: |
+          flutter build ipa --release \
+            --build-number=$((100 + PROJECT_BUILD_NUMBER)) \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+        submit_to_testflight: true

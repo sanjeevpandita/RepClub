@@ -61,7 +61,13 @@ class BodyMap extends StatelessWidget {
   final Map<String, dynamic>? previous;
 
   static const _labelW = 86.0;
-  static const _chipH = 36.0;
+  static const _chipH = 32.0;
+  // Label and number are the same size; the number is bold. Tight line height (1.15)
+  // keeps each label right above its number.
+  static const _label = TextStyle(fontSize: 11, height: 1.15);
+  static const _number =
+      TextStyle(fontSize: 12, height: 1.15, fontWeight: FontWeight.w600);
+  static const _unit = TextStyle(fontSize: 9, height: 1.15);
 
   @override
   Widget build(BuildContext context) {
@@ -128,23 +134,25 @@ class BodyMap extends StatelessWidget {
       left: left ? 0 : w - _labelW,
       width: _labelW - 4,
       height: _chipH,
-      child: Column(
-        crossAxisAlignment: left ? CrossAxisAlignment.start : CrossAxisAlignment.end,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(i.field.label.replaceAll(' right', ' R').replaceAll(' left', ' L'),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.labelSmall),
-          Text.rich(TextSpan(children: [
-            TextSpan(
-                text: evalNumber(i.value), style: theme.textTheme.titleSmall),
-            TextSpan(
-                text: ' ${i.field.unit}',
-                style: theme.textTheme.titleSmall?.copyWith(
-                    fontSize: (theme.textTheme.titleSmall?.fontSize ?? 14) / 2)),
-          ])),
-        ],
+      // Large phone text settings (common on iPhone) would make the labels overlap,
+      // so the body map caps the text scaling.
+      child: MediaQuery.withClampedTextScaling(
+        maxScaleFactor: 1.1,
+        child: Column(
+          crossAxisAlignment:
+              left ? CrossAxisAlignment.start : CrossAxisAlignment.end,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(i.field.label.replaceAll(' right', ' R').replaceAll(' left', ' L'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: _label.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+            Text.rich(TextSpan(children: [
+              TextSpan(text: evalNumber(i.value), style: _number),
+              TextSpan(text: ' ${i.field.unit}', style: _unit),
+            ])),
+          ],
+        ),
       ),
     );
   }

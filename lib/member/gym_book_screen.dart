@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../shared/common.dart';
+import 'booking_events.dart';
 import 'book_screen.dart';
+import 'coach_week_screen.dart';
+import 'my_calendar_screen.dart';
 
 const _weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const _daysAhead = 14;
@@ -34,24 +37,44 @@ class BookHub extends StatelessWidget {
         // A coach gives access to gym time as well as a Monthly Pass.
         if (who.coach) {
           return DefaultTabController(
-            length: 2,
+            length: 4,
             child: Scaffold(
               appBar: AppBar(
                 title: const Text('Book'),
                 bottom: const TabBar(
-                    tabs: [Tab(text: 'Coach sessions'), Tab(text: 'Gym time')]),
+                    isScrollable: true,
+                    tabAlignment: TabAlignment.start,
+                    tabs: [
+                      Tab(text: 'My calendar'),
+                      Tab(text: 'Coach sessions'),
+                      Tab(text: 'Coach week'),
+                      Tab(text: 'Gym time'),
+                    ]),
               ),
               body: const TabBarView(children: [
+                MyCalendarView(),
                 BookScreen(embedded: true),
+                CoachWeekView(),
                 GymBookView(),
               ]),
             ),
           );
         }
         if (who.pass) {
-          return Scaffold(
-              appBar: AppBar(title: const Text('Book gym time')),
-              body: const GymBookView());
+          return DefaultTabController(
+            length: 2,
+            child: Scaffold(
+              appBar: AppBar(
+                title: const Text('Book'),
+                bottom: const TabBar(
+                    tabs: [Tab(text: 'My calendar'), Tab(text: 'Gym time')]),
+              ),
+              body: const TabBarView(children: [
+                MyCalendarView(),
+                GymBookView(),
+              ]),
+            ),
+          );
         }
         return Scaffold(
           appBar: AppBar(title: const Text('Book')),
@@ -116,6 +139,20 @@ class _GymBookViewState extends State<GymBookView> {
 
   Future<void> _reload() async => _loader.currentState?.reload();
 
+  void _changed() => _reload();
+
+  @override
+  void initState() {
+    super.initState();
+    bookingsChanged.addListener(_changed);
+  }
+
+  @override
+  void dispose() {
+    bookingsChanged.removeListener(_changed);
+    super.dispose();
+  }
+
   String _label(_Hour h) =>
       '${_weekdays[h.start.weekday - 1]} ${showDate(h.start)}, ${showTime(h.start)}-${showTime(h.start.add(const Duration(hours: 1)))}';
 
@@ -146,7 +183,7 @@ class _GymBookViewState extends State<GymBookView> {
     });
     if (ok) {
       if (mounted) snack(context, 'Gym time booked');
-      await _reload();
+      notifyBookingsChanged();
     }
   }
 
@@ -161,7 +198,7 @@ class _GymBookViewState extends State<GymBookView> {
     });
     if (ok) {
       if (mounted) snack(context, 'Booking cancelled');
-      await _reload();
+      notifyBookingsChanged();
     }
   }
 

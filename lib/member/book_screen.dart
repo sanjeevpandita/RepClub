@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../shared/common.dart';
+import 'booking_events.dart';
 
 const _weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const _daysAhead = 14;
@@ -83,6 +84,20 @@ class _BookScreenState extends State<BookScreen> {
 
   Future<void> _reload() async => _loader.currentState?.reload();
 
+  void _changed() => _reload();
+
+  @override
+  void initState() {
+    super.initState();
+    bookingsChanged.addListener(_changed);
+  }
+
+  @override
+  void dispose() {
+    bookingsChanged.removeListener(_changed);
+    super.dispose();
+  }
+
   Future<bool> _confirm(String title, String text, String yes) async {
     final ok = await showDialog<bool>(
       context: context,
@@ -119,7 +134,7 @@ class _BookScreenState extends State<BookScreen> {
       if (ok) {
         setState(() => _moving = null);
         if (mounted) snack(context, 'Session moved');
-        await _reload();
+        notifyBookingsChanged();
       }
       return;
     }
@@ -130,7 +145,7 @@ class _BookScreenState extends State<BookScreen> {
     });
     if (ok) {
       if (mounted) snack(context, 'Session booked');
-      await _reload();
+      notifyBookingsChanged();
     }
   }
 
@@ -146,7 +161,7 @@ class _BookScreenState extends State<BookScreen> {
     });
     if (ok) {
       if (mounted) snack(context, 'Booking cancelled');
-      await _reload();
+      notifyBookingsChanged();
     }
   }
 

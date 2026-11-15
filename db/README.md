@@ -35,3 +35,6 @@ new scripts are added in both places.
 | `26_half_hour_sessions.sql` | 30-minute (HIIT) sessions: package session length, split/join an hour, gym count by overlap. |
 | `27_one_package_per_kind.sql` | One credit package and one Monthly Pass at a time (no queuing a second of the same kind). |
 | `28_no_show_in_advance.sql` | Coach/admin may mark a booked session as a no-show before it starts (member away); 1 credit taken at once. |
+| `29_manual_no_shows.sql` | No automatic no-shows: nightly job only expires packages; admin marks missed sessions by hand (`admin_mark_past_no_shows`). |
+| `30_remove_old_no_show_job.sql` | Removes the hand-made `repclub-reconcile-no-shows` cron job; lists all jobs with their commands. |
+| `31_remove_old_jobs.sql` | Removes the hand-made `repclub-expire-packages` and `repclub-generate-slots` cron jobs (old functions, replaced by 29 and 06). |

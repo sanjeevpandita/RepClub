@@ -25,35 +25,46 @@ class _Data {
 Future<_Data> _load() async {
   final now = DateTime.now();
   final to = DateTime(now.year, now.month, now.day + _daysAhead);
-  final rows = await db
-      .from('slots')
-      .select('id, starts_at, ends_at, bookings(id, status, member_id)')
-      .eq('coach_id', db.auth.currentUser!.id)
-      .eq('is_cancelled', false)
-      .gte('starts_at', now.toUtc().toIso8601String())
-      .lt('starts_at', to.toUtc().toIso8601String())
-      .order('starts_at', ascending: true) as List;
+  final rows =
+      await db
+              .from('slots')
+              .select('id, starts_at, ends_at, bookings(id, status, member_id)')
+              .eq('coach_id', db.auth.currentUser!.id)
+              .eq('is_cancelled', false)
+              .gte('starts_at', now.toUtc().toIso8601String())
+              .lt('starts_at', to.toUtc().toIso8601String())
+              .order('starts_at', ascending: true)
+          as List;
   final slots = <_Slot>[];
   for (final r in rows) {
     Map? active;
     for (final b in (r['bookings'] as List)) {
       if (b['status'] == 'BOOKED') active = b as Map;
     }
-    slots.add(_Slot(
-      r['id'] as String,
-      DateTime.parse(r['starts_at'] as String).toLocal(),
-      DateTime.parse(r['ends_at'] as String).toLocal(),
-      active?['id'] as String?,
-      active?['member_id'] as String?,
-    ));
+    slots.add(
+      _Slot(
+        r['id'] as String,
+        DateTime.parse(r['starts_at'] as String).toLocal(),
+        DateTime.parse(r['ends_at'] as String).toLocal(),
+        active?['id'] as String?,
+        active?['member_id'] as String?,
+      ),
+    );
   }
-  final ids = {for (final s in slots) if (s.memberId != null) s.memberId!};
+  final ids = {
+    for (final s in slots)
+      if (s.memberId != null) s.memberId!,
+  };
   return _Data(slots, ids.isEmpty ? {} : await nameMap(ids));
 }
 
 /// Coach's upcoming sessions: book a member into a free slot, move or cancel.
 class CoachScheduleScreen extends StatefulWidget {
-  const CoachScheduleScreen({super.key});
+  const CoachScheduleScreen({super.key, this.embedded = false});
+
+  /// True when shown inside the Calendar tab (no own app bar; the Calendar
+  /// app bar has the time-off button).
+  final bool embedded;
 
   @override
   State<CoachScheduleScreen> createState() => _CoachScheduleScreenState();
@@ -86,10 +97,13 @@ class _CoachScheduleScreenState extends State<CoachScheduleScreen> {
         content: Text(text),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Back')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Back'),
+          ),
           FilledButton(
-              onPressed: () => Navigator.pop(ctx, true), child: Text(yes)),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(yes),
+          ),
         ],
       ),
     );
@@ -97,10 +111,12 @@ class _CoachScheduleScreenState extends State<CoachScheduleScreen> {
   }
 
   Future<({String id, String name})?> _pickMember() async {
-    final mp = await db
-        .from('member_profiles')
-        .select('id')
-        .eq('primary_coach_id', db.auth.currentUser!.id) as List;
+    final mp =
+        await db
+                .from('member_profiles')
+                .select('id')
+                .eq('primary_coach_id', db.auth.currentUser!.id)
+            as List;
     final names = await nameMap([for (final m in mp) m['id'] as String]);
     final list = names.entries.toList()
       ..sort((a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase()));
@@ -132,21 +148,29 @@ class _CoachScheduleScreenState extends State<CoachScheduleScreen> {
       // A 30-minute booking moved into a free hour: choose which half.
       DateTime? half;
       final from = _movingSlot;
-      if (from != null && isHalfHour(from.start, from.end) && !isHalfHour(s.start, s.end)) {
+      if (from != null &&
+          isHalfHour(from.start, from.end) &&
+          !isHalfHour(s.start, s.end)) {
         half = await pickHalf(context, s.start);
         if (half == null || !mounted) return;
       }
-      if (!await _confirm('Move session', 'Move the booking to ${_label(s)}?',
-          'Move')) {
+      if (!await _confirm(
+        'Move session',
+        'Move the booking to ${_label(s)}?',
+        'Move',
+      )) {
         return;
       }
       if (!mounted) return;
       final ok = await attempt(context, () async {
-        await db.rpc('reschedule_booking', params: {
-          'p_booking': id,
-          'p_new_slot': s.id,
-          if (half != null) 'p_new_start': half.toUtc().toIso8601String(),
-        });
+        await db.rpc(
+          'reschedule_booking',
+          params: {
+            'p_booking': id,
+            'p_new_slot': s.id,
+            if (half != null) 'p_new_start': half.toUtc().toIso8601String(),
+          },
+        );
       });
       if (ok) {
         setState(() => _moving = null);
@@ -173,11 +197,14 @@ class _CoachScheduleScreenState extends State<CoachScheduleScreen> {
     }
     if (!mounted) return;
     final ok = await attempt(context, () async {
-      await db.rpc('create_booking', params: {
-        'p_slot': s.id,
-        'p_member': m.id,
-        if (half != null) 'p_start': half.toUtc().toIso8601String(),
-      });
+      await db.rpc(
+        'create_booking',
+        params: {
+          'p_slot': s.id,
+          'p_member': m.id,
+          if (half != null) 'p_start': half.toUtc().toIso8601String(),
+        },
+      );
     });
     if (ok) {
       if (mounted) snack(context, 'Session booked');
@@ -186,9 +213,11 @@ class _CoachScheduleScreenState extends State<CoachScheduleScreen> {
   }
 
   Future<void> _cancel(_Slot s, String name) async {
-    if (!await _confirm('Cancel booking',
-        'Cancel ${_label(s)} for $name? Sessions within 12 hours cannot be cancelled here.',
-        'Cancel booking')) {
+    if (!await _confirm(
+      'Cancel booking',
+      'Cancel ${_label(s)} for $name? Sessions within 12 hours cannot be cancelled here.',
+      'Cancel booking',
+    )) {
       return;
     }
     if (!mounted) return;
@@ -207,8 +236,79 @@ class _CoachScheduleScreenState extends State<CoachScheduleScreen> {
     final today = _today();
     final days = [
       for (var i = 0; i < _daysAhead; i++)
-        DateTime(today.year, today.month, today.day + i)
+        DateTime(today.year, today.month, today.day + i),
     ];
+    final content = Column(
+      children: [
+        SizedBox(
+          height: 76,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            itemCount: days.length,
+            itemBuilder: (_, i) {
+              final d = days[i];
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: ChoiceChip(
+                  selected: _sameDay(d, _day),
+                  onSelected: (_) => setState(() => _day = d),
+                  label: SizedBox(
+                    width: 44,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          _weekdays[d.weekday - 1],
+                          style: theme.textTheme.labelSmall,
+                        ),
+                        Text('${d.day}', style: theme.textTheme.titleMedium),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        if (_moving != null)
+          MaterialBanner(
+            content: const Text(
+              'Choose a free session to move the booking to.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => setState(() => _moving = null),
+                child: const Text('Stop moving'),
+              ),
+            ],
+          ),
+        Expanded(
+          child: Loader<_Data>(
+            key: _loader,
+            load: _load,
+            builder: (context, data, reload) {
+              final slots = data.slots
+                  .where((s) => _sameDay(s.start, _day))
+                  .toList();
+              if (slots.isEmpty) {
+                return ListView(
+                  children: const [
+                    SizedBox(height: 80),
+                    Center(child: Text('No sessions on this day')),
+                  ],
+                );
+              }
+              return ListView(
+                padding: const EdgeInsets.all(12),
+                children: [for (final s in slots) _tile(theme, s, data)],
+              );
+            },
+          ),
+        ),
+      ],
+    );
+    if (widget.embedded) return content;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Schedule'),
@@ -217,75 +317,15 @@ class _CoachScheduleScreenState extends State<CoachScheduleScreen> {
             tooltip: 'My time off',
             icon: const Icon(Icons.beach_access_outlined),
             onPressed: () async {
-              await Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => const CoachTimeOffScreen()));
+              await Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const CoachTimeOffScreen()),
+              );
               _reload();
             },
           ),
         ],
       ),
-      body: Column(
-        children: [
-          SizedBox(
-            height: 76,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-              itemCount: days.length,
-              itemBuilder: (_, i) {
-                final d = days[i];
-                return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: ChoiceChip(
-                    selected: _sameDay(d, _day),
-                    onSelected: (_) => setState(() => _day = d),
-                    label: SizedBox(
-                      width: 44,
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(_weekdays[d.weekday - 1],
-                              style: theme.textTheme.labelSmall),
-                          Text('${d.day}', style: theme.textTheme.titleMedium),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-          if (_moving != null)
-            MaterialBanner(
-              content: const Text('Choose a free session to move the booking to.'),
-              actions: [
-                TextButton(
-                    onPressed: () => setState(() => _moving = null),
-                    child: const Text('Stop moving')),
-              ],
-            ),
-          Expanded(
-            child: Loader<_Data>(
-              key: _loader,
-              load: _load,
-              builder: (context, data, reload) {
-                final slots =
-                    data.slots.where((s) => _sameDay(s.start, _day)).toList();
-                if (slots.isEmpty) {
-                  return ListView(children: const [
-                    SizedBox(height: 80),
-                    Center(child: Text('No sessions on this day')),
-                  ]);
-                }
-                return ListView(
-                  padding: const EdgeInsets.all(12),
-                  children: [for (final s in slots) _tile(theme, s, data)],
-                );
-              },
-            ),
-          ),
-        ],
-      ),
+      body: content,
     );
   }
 
@@ -299,8 +339,10 @@ class _CoachScheduleScreenState extends State<CoachScheduleScreen> {
       return Card(
         color: theme.colorScheme.primary.withValues(alpha: 0.15),
         child: ListTile(
-          leading:
-              Icon(Icons.event_available, color: theme.colorScheme.primary),
+          leading: Icon(
+            Icons.event_available,
+            color: theme.colorScheme.primary,
+          ),
           title: Text(time),
           subtitle: Text(name),
           trailing: _moving == s.bookingId
@@ -316,8 +358,14 @@ class _CoachScheduleScreenState extends State<CoachScheduleScreen> {
                     if (v == 'cancel') _cancel(s, name);
                   },
                   itemBuilder: (_) => const [
-                    PopupMenuItem(value: 'move', child: Text('Move to another time')),
-                    PopupMenuItem(value: 'cancel', child: Text('Cancel booking')),
+                    PopupMenuItem(
+                      value: 'move',
+                      child: Text('Move to another time'),
+                    ),
+                    PopupMenuItem(
+                      value: 'cancel',
+                      child: Text('Cancel booking'),
+                    ),
                   ],
                 ),
         ),

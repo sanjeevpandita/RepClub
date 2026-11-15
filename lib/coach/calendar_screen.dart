@@ -4,7 +4,10 @@ import '../app.dart';
 import '../shared/common.dart';
 import '../shared/session_length.dart';
 import '../shared/workout.dart' show weekdayNames;
-import 'members_screen.dart' show CoachMemberDetail;
+import 'schedule_screen.dart';
+import 'time_off_screen.dart';
+
+enum _Mode { week, month, schedule }
 
 const _months = [
   'January', 'February', 'March', 'April', 'May', 'June', 'July', //
@@ -98,7 +101,8 @@ class CoachCalendarScreen extends StatefulWidget {
 }
 
 class _CoachCalendarScreenState extends State<CoachCalendarScreen> {
-  bool _monthView = true;
+  _Mode _mode = _Mode.month;
+  bool get _monthView => _mode == _Mode.month;
   late DateTime _anchor = _dayOf(DateTime.now()); // a day inside the period
   late DateTime _selected = _dayOf(DateTime.now());
   int _version = 0; // bumped to reload
@@ -153,15 +157,6 @@ class _CoachCalendarScreenState extends State<CoachCalendarScreen> {
       _anchor = _dayOf(DateTime.now());
       _selected = _anchor;
     });
-  }
-
-  Future<void> _openMember(_Appt a) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => CoachMemberDetail(id: a.memberId, name: a.memberName),
-      ),
-    );
-    if (mounted) setState(() => _version++);
   }
 
   /// Any booked session can be marked as a no-show, also before it starts
@@ -255,62 +250,229 @@ class _CoachCalendarScreenState extends State<CoachCalendarScreen> {
     });
   }
 
+  /// The + button: book one of the coach's members into a free session on
+  /// the selected day (same as "Book member" in Schedule).
+  Future<void> _book() async {
+    final day = _selected;
+    if (day.isBefore(_dayOf(DateTime.now()))) {
+      snack(context, 'Pick today or a later day to book a session.');
+      return;
+    }
+    final m = await _pickMember();
+    if (m == null || !mounted) return;
+    final minutes = await memberSessionMinutes(m.id);
+    if (!mounted) return;
+    final slot = await Navigator.of(context).push<_Free>(
+      MaterialPageRoute(
+        builder: (_) =>
+            _BookPicker(day: day, memberName: m.name, minutes: minutes),
+      ),
+    );
+    if (slot == null || !mounted) return;
+    DateTime? half;
+    if (minutes == 30 && !isHalfHour(slot.start, slot.end)) {
+      half = await pickHalf(context, slot.start);
+      if (half == null || !mounted) return;
+    }
+    final start = half ?? slot.start;
+    final end = half != null ? half.add(halfHour) : slot.end;
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Book session'),
+        content: Text(
+          'Book ${m.name} on ${weekdayNames[start.weekday - 1]} '
+          '${showDate(start)}, ${showTime(start)}-${showTime(end)}?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Back'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Book'),
+          ),
+        ],
+      ),
+    );
+    if (yes != true || !mounted) return;
+    final ok = await attempt(context, () async {
+      await db.rpc(
+        'create_booking',
+        params: {
+          'p_slot': slot.id,
+          'p_member': m.id,
+          if (half != null) 'p_start': half.toUtc().toIso8601String(),
+        },
+      );
+    });
+    if (!ok || !mounted) return;
+    snack(context, 'Session booked');
+    setState(() => _version++);
+  }
+
+  /// The coach's own members, A-Z, in a bottom sheet.
+  Future<({String id, String name})?> _pickMember() async {
+    final mp =
+        await db
+                .from('member_profiles')
+                .select('id')
+                .eq('primary_coach_id', db.auth.currentUser!.id)
+            as List;
+    final names = mp.isEmpty
+        ? <String, String>{}
+        : await nameMap([for (final m in mp) m['id'] as String]);
+    final list = names.entries.toList()
+      ..sort((a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase()));
+    if (!mounted) return null;
+    return showModalBottomSheet<({String id, String name})>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.7,
+          ),
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              ListTile(
+                title: Text(
+                  'Book which member? (${weekdayNames[_selected.weekday - 1]} '
+                  '${showDate(_selected)})',
+                ),
+              ),
+              if (list.isEmpty)
+                const ListTile(title: Text('You have no members yet.')),
+              for (final e in list)
+                ListTile(
+                  leading: const Icon(Icons.person_outline),
+                  title: Text(e.value),
+                  onTap: () =>
+                      Navigator.of(ctx).pop((id: e.key, name: e.value)),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final (from, to) = _range;
+    const small = TextStyle(fontSize: 12);
+    final schedule = _mode == _Mode.schedule;
     return Scaffold(
-      appBar: AppBar(title: const Text('Calendar')),
+      appBar: AppBar(
+        title: const Text('Calendar'),
+        actions: [
+          if (schedule)
+            IconButton(
+              tooltip: 'My time off',
+              icon: const Icon(Icons.beach_access_outlined),
+              onPressed: () async {
+                await Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const CoachTimeOffScreen()),
+                );
+                if (mounted) setState(() => _version++);
+              },
+            ),
+        ],
+      ),
+      floatingActionButton: schedule
+          ? null
+          : FloatingActionButton(
+              tooltip: 'Book a session',
+              backgroundColor: repLime,
+              foregroundColor: Colors.black,
+              onPressed: _book,
+              child: const Icon(Icons.add),
+            ),
       body: Column(
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
             child: Row(
               children: [
-                SegmentedButton<bool>(
+                SegmentedButton<_Mode>(
+                  style: SegmentedButton.styleFrom(
+                    textStyle: small,
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                  ),
                   segments: const [
-                    ButtonSegment(value: false, label: Text('Week')),
-                    ButtonSegment(value: true, label: Text('Month')),
+                    ButtonSegment(value: _Mode.week, label: Text('Week')),
+                    ButtonSegment(value: _Mode.month, label: Text('Month')),
+                    ButtonSegment(
+                      value: _Mode.schedule,
+                      label: Text('Schedule'),
+                    ),
                   ],
-                  selected: {_monthView},
+                  selected: {_mode},
                   showSelectedIcon: false,
                   onSelectionChanged: (v) => setState(() {
-                    _monthView = v.first;
+                    _mode = v.first;
                     _anchor = _selected;
+                    _version++; // reload after changes made in Schedule
                   }),
                 ),
                 const Spacer(),
-                TextButton(onPressed: _goToday, child: const Text('Today')),
+                // Hidden (not removed) in Schedule so the bar does not jump.
+                Visibility(
+                  visible: !schedule,
+                  maintainSize: true,
+                  maintainAnimation: true,
+                  maintainState: true,
+                  child: TextButton(
+                    onPressed: _goToday,
+                    style: TextButton.styleFrom(textStyle: small),
+                    child: const Text('Today'),
+                  ),
+                ),
               ],
             ),
           ),
-          Row(
-            children: [
-              IconButton(
-                onPressed: () => _step(-1),
-                icon: const Icon(Icons.chevron_left),
+          if (schedule)
+            Expanded(
+              child: CoachScheduleScreen(
+                key: ValueKey('schedule$_version'),
+                embedded: true,
               ),
-              Expanded(
-                child: Text(
-                  _title,
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.titleMedium,
-                ),
-              ),
-              IconButton(
-                onPressed: () => _step(1),
-                icon: const Icon(Icons.chevron_right),
-              ),
-            ],
-          ),
-          Expanded(
-            child: Loader<Map<DateTime, List<_Appt>>>(
-              key: ValueKey('${from.toIso8601String()}|$_monthView|$_version'),
-              load: () => _loadAppts(from, to),
-              builder: (context, byDay, reload) =>
-                  _body(theme, byDay, from, to),
             ),
-          ),
+          if (!schedule) ...[
+            Row(
+              children: [
+                IconButton(
+                  onPressed: () => _step(-1),
+                  icon: const Icon(Icons.chevron_left),
+                ),
+                Expanded(
+                  child: Text(
+                    _title,
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.titleMedium,
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => _step(1),
+                  icon: const Icon(Icons.chevron_right),
+                ),
+              ],
+            ),
+            Expanded(
+              child: Loader<Map<DateTime, List<_Appt>>>(
+                key: ValueKey(
+                  '${from.toIso8601String()}|$_monthView|$_version',
+                ),
+                load: () => _loadAppts(from, to),
+                builder: (context, byDay, reload) =>
+                    _body(theme, byDay, from, to),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -336,7 +498,7 @@ class _CoachCalendarScreenState extends State<CoachCalendarScreen> {
         .where((e) => !_monthView || e.key.month == _anchor.month)
         .fold<int>(0, (s, e) => s + e.value.length);
     return ListView(
-      padding: const EdgeInsets.fromLTRB(8, 0, 8, 16),
+      padding: const EdgeInsets.fromLTRB(8, 0, 8, 88), // room for the + button
       children: [
         Row(
           children: [
@@ -385,7 +547,7 @@ class _CoachCalendarScreenState extends State<CoachCalendarScreen> {
           child: Text(
             '${weekdayNames[_selected.weekday - 1]} ${showDate(_selected)}'
             '${appts.isEmpty ? '' : '  ·  ${appts.length} booked'}',
-            style: theme.textTheme.titleSmall,
+            style: theme.textTheme.titleSmall?.copyWith(fontSize: 12),
           ),
         ),
         if (appts.isEmpty)
@@ -410,63 +572,88 @@ class _CoachCalendarScreenState extends State<CoachCalendarScreen> {
     final mins = a.end.difference(a.start).inMinutes;
     final booked = a.status == 'BOOKED';
     final upcoming = DateTime.now().isBefore(a.start);
+    // One row: time | name + status | Reschedule, Mark no-show.
     return Card(
-      child: Column(
-        children: [
-          ListTile(
-            leading: SizedBox(
-              width: 52,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 48,
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(
                     showTime(a.start),
                     style: theme.textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.bold,
+                      fontSize: 12,
                     ),
                   ),
                   Text(
                     mins == 30 ? '30 min' : showTime(a.end),
                     style: theme.textTheme.labelSmall?.copyWith(
                       color: Colors.white54,
+                      fontSize: 9,
                     ),
                   ),
                 ],
               ),
             ),
-            title: Text(a.memberName),
-            subtitle: Text(label, style: TextStyle(color: color)),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _openMember(a),
-          ),
-          if (booked)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (upcoming)
-                    TextButton.icon(
-                      onPressed: () => _reschedule(a),
-                      icon: const Icon(Icons.swap_horiz, size: 18),
-                      label: const Text('Reschedule'),
-                    ),
-                  TextButton.icon(
-                    onPressed: () => _noShow(a),
-                    icon: Icon(
-                      Icons.person_off_outlined,
-                      size: 18,
-                      color: theme.colorScheme.error,
-                    ),
-                    label: Text(
-                      'Mark no-show',
-                      style: TextStyle(color: theme.colorScheme.error),
-                    ),
+                  Text(
+                    a.memberName,
+                    style: const TextStyle(fontSize: 14),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
+                  Text(label, style: TextStyle(color: color, fontSize: 12)),
                 ],
               ),
             ),
-        ],
+            if (booked && upcoming)
+              _action(
+                icon: Icons.swap_horiz,
+                text: 'Reschedule',
+                color: theme.colorScheme.primary,
+                onTap: () => _reschedule(a),
+              ),
+            if (booked)
+              _action(
+                icon: Icons.person_off_outlined,
+                text: 'No-show',
+                color: theme.colorScheme.error,
+                onTap: () => _noShow(a),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// A small button with the icon above its label, so two fit beside a name.
+  Widget _action({
+    required IconData icon,
+    required String text,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 20, color: color),
+            const SizedBox(height: 2),
+            Text(text, style: TextStyle(color: color, fontSize: 11)),
+          ],
+        ),
       ),
     );
   }
@@ -653,6 +840,87 @@ class _DayCell extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The coach's free sessions on one day (from now on, if it is today). A
+/// 1-hour member only sees 1-hour sessions; a 30-minute member sees both (a
+/// free hour is split into halves after picking).
+class _BookPicker extends StatelessWidget {
+  const _BookPicker({
+    required this.day,
+    required this.memberName,
+    required this.minutes,
+  });
+  final DateTime day;
+  final String memberName;
+  final int minutes;
+
+  Future<List<_Free>> _load() async {
+    final now = DateTime.now();
+    final dayEnd = DateTime(day.year, day.month, day.day + 1);
+    final from = day.isAfter(now) ? day : now;
+    final rows =
+        await db
+                .from('slots')
+                .select('id, starts_at, ends_at, bookings(status)')
+                .eq('coach_id', db.auth.currentUser!.id)
+                .eq('is_cancelled', false)
+                .gte('starts_at', from.toUtc().toIso8601String())
+                .lt('starts_at', dayEnd.toUtc().toIso8601String())
+                .order('starts_at', ascending: true)
+            as List;
+    return [
+      for (final r in rows)
+        if (!(r['bookings'] as List).any((b) => b['status'] != 'CANCELLED'))
+          _Free(
+            r['id'] as String,
+            DateTime.parse(r['starts_at'] as String).toLocal(),
+            DateTime.parse(r['ends_at'] as String).toLocal(),
+          ),
+    ].where((s) => minutes == 30 || !isHalfHour(s.start, s.end)).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Scaffold(
+      appBar: AppBar(title: Text('Book $memberName')),
+      body: Loader<List<_Free>>(
+        load: _load,
+        builder: (context, free, reload) => ListView(
+          padding: const EdgeInsets.all(8),
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+              child: Text(
+                '${weekdayNames[day.weekday - 1]} ${showDate(day)}'
+                '${minutes == 30 ? '  ·  30-minute package' : ''}. '
+                'Choose a free session:',
+                style: theme.textTheme.bodySmall,
+              ),
+            ),
+            if (free.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 60),
+                child: Center(child: Text('No free sessions on this day.')),
+              ),
+            for (final s in free)
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.schedule),
+                  title: Text(
+                    '${showTime(s.start)} - ${showTime(s.end)}'
+                    '${isHalfHour(s.start, s.end) ? '  (30 min)' : ''}',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.of(context).pop(s),
+                ),
+              ),
+          ],
         ),
       ),
     );

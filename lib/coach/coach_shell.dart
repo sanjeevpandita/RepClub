@@ -26,10 +26,6 @@ class CoachShell extends StatelessWidget {
               selectedIcon: Icon(Icons.date_range),
               label: 'Calendar'),
           NavigationDestination(
-              icon: Icon(Icons.calendar_month_outlined),
-              selectedIcon: Icon(Icons.calendar_month),
-              label: 'Schedule'),
-          NavigationDestination(
               icon: Icon(Icons.groups_outlined),
               selectedIcon: Icon(Icons.groups),
               label: 'Members'),

@@ -5,6 +5,7 @@ import 'admin/admin_shell.dart';
 import 'admin/audit_screen.dart';
 import 'admin/calendar_screen.dart';
 import 'admin/coaches_screen.dart';
+import 'admin/missed_sessions_screen.dart';
 import 'admin/equipment_screen.dart';
 import 'admin/gym_qr_screen.dart';
 import 'admin/members_screen.dart';
@@ -18,7 +19,6 @@ import 'coach/calendar_screen.dart';
 import 'coach/coach_shell.dart';
 import 'coach/members_screen.dart';
 import 'coach/qr_screen.dart';
-import 'coach/schedule_screen.dart';
 import 'coach/today_screen.dart';
 import 'member/gym_book_screen.dart';
 import 'member/equipment_screen.dart';
@@ -96,11 +96,6 @@ GoRouter buildRouter(AppSession session) {
             GoRoute(
                 path: '/coach/calendar',
                 builder: (_, _) => const CoachCalendarScreen()),
-          ]),
-          StatefulShellBranch(routes: [
-            GoRoute(
-                path: '/coach/schedule',
-                builder: (_, _) => const CoachScheduleScreen()),
           ]),
           StatefulShellBranch(routes: [
             GoRoute(
@@ -204,6 +199,10 @@ GoRouter buildRouter(AppSession session) {
                 GoRoute(
                   path: 'reports',
                   builder: (_, _) => const ReportsScreen(),
+                ),
+                GoRoute(
+                  path: 'missed',
+                  builder: (_, _) => const MissedSessionsScreen(),
                 ),
                 GoRoute(
                   path: 'audit',

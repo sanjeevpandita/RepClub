@@ -61,6 +61,7 @@ class MoreScreen extends StatelessWidget {
           _item(context, Icons.sports_gymnastics, 'Workouts (muscle groups)', 'workouts'),
           _item(context, Icons.qr_code_2, 'Gym door QR', 'gymqr'),
           _item(context, Icons.assessment_outlined, 'Reports', 'reports'),
+          _item(context, Icons.person_off_outlined, 'Missed sessions (no-shows)', 'missed'),
           _item(context, Icons.history, 'Audit log', 'audit'),
           _item(context, Icons.settings_outlined, 'Settings', 'settings'),
           _item(context, Icons.lock_outline, 'Change password', 'password'),

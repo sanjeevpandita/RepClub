@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../shared/common.dart';
+import '../shared/session_length.dart';
 
 const _weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -8,6 +9,10 @@ String _dayLabel(DateTime d) =>
     '${_weekdays[d.weekday - 1]} ${showDate(d)}';
 
 DateTime _dayStart(DateTime d) => DateTime(d.year, d.month, d.day);
+
+bool _isHalf(Map<String, dynamic> slot) => isHalfHour(
+    DateTime.parse(slot['starts_at'] as String),
+    DateTime.parse(slot['ends_at'] as String));
 
 bool _isTaken(String status) =>
     status == 'BOOKED' || status == 'ATTENDED' || status == 'NO_SHOW';
@@ -43,7 +48,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
       final end = DateTime(_day.year, _day.month, _day.day + 1);
       final rows = await db
           .from('slots')
-          .select('id, coach_id, starts_at, capacity, is_cancelled, bookings(status)')
+          .select('id, coach_id, starts_at, ends_at, capacity, is_cancelled, bookings(status)')
           .gte('starts_at', start.toUtc().toIso8601String())
           .lt('starts_at', end.toUtc().toIso8601String())
           .order('starts_at', ascending: true);
@@ -248,6 +253,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   style: Theme.of(context).textTheme.bodyLarge),
             ),
             const SizedBox(width: 8),
+            if (_isHalf(s))
+              const Padding(
+                padding: EdgeInsets.only(right: 8),
+                child: Text('30 min'),
+              ),
             Expanded(
               child: LinearProgressIndicator(
                   value: cap == 0 ? 0 : (taken / cap).clamp(0, 1).toDouble()),
@@ -515,14 +525,44 @@ class _SlotDetailScreenState extends State<SlotDetailScreen> {
       ),
     ));
     if (picked == null || !mounted) return;
+    // Members with a 30-minute package get half of a free hour.
+    final starts = DateTime.parse(d.slot['starts_at'] as String).toLocal();
+    DateTime? half;
+    if (!_isHalf(d.slot) && await memberSessionMinutes(picked) == 30) {
+      if (!mounted) return;
+      half = await pickHalf(context, starts);
+      if (half == null) return;
+    }
+    if (!mounted) return;
     final ok = await attempt(context, () async {
-      await db.rpc('create_booking',
-          params: {'p_slot': widget.slotId, 'p_member': picked});
+      await db.rpc('create_booking', params: {
+        'p_slot': widget.slotId,
+        'p_member': picked,
+        if (half != null) 'p_start': half.toUtc().toIso8601String(),
+      });
     });
-    if (ok) _key.currentState?.reload();
+    if (!ok || !mounted) return;
+    if (half != null && half != starts) {
+      // The booking is in the new second half, not in this session.
+      snack(context,
+          'Booked ${showTime(half)} - ${showTime(half.add(halfHour))}');
+      Navigator.of(context).pop();
+    } else {
+      _key.currentState?.reload();
+    }
   }
 
-  Future<void> _cancel(Map<String, dynamic> b) async {
+  /// After a cancel or move, a 30-minute half may be joined back into an hour
+  /// (and this session removed), so go back to the calendar.
+  void _afterChange(_SlotData d) {
+    if (_isHalf(d.slot)) {
+      Navigator.of(context).pop();
+    } else {
+      _key.currentState?.reload();
+    }
+  }
+
+  Future<void> _cancel(_SlotData d, Map<String, dynamic> b) async {
     final r = await showDialog<ReasonResult>(
       context: context,
       builder: (_) => const ReasonDialog(
@@ -536,15 +576,24 @@ class _SlotDetailScreenState extends State<SlotDetailScreen> {
         'p_note': r.note.isEmpty ? null : r.note,
       });
     });
-    if (ok) _key.currentState?.reload();
+    if (ok && mounted) _afterChange(d);
   }
 
   Future<void> _reschedule(_SlotData d, Map<String, dynamic> b) async {
-    final newSlot = await Navigator.of(context).push<String>(MaterialPageRoute(
+    final target = await Navigator.of(context)
+        .push<Map<String, dynamic>>(MaterialPageRoute(
       builder: (_) => _PickSlotScreen(
           coachId: d.slot['coach_id'] as String, excludeSlot: widget.slotId),
     ));
-    if (newSlot == null || !mounted) return;
+    if (target == null || !mounted) return;
+    final newSlot = target['id'] as String;
+    // A 30-minute booking moved into a 1-hour session: choose which half.
+    DateTime? half;
+    if (_isHalf(d.slot) && !_isHalf(target)) {
+      half = await pickHalf(
+          context, DateTime.parse(target['starts_at'] as String).toLocal());
+      if (half == null || !mounted) return;
+    }
     final r = await showDialog<ReasonResult>(
       context: context,
       builder: (_) => const ReasonDialog(
@@ -557,9 +606,10 @@ class _SlotDetailScreenState extends State<SlotDetailScreen> {
         'p_new_slot': newSlot,
         'p_reason': r.reason,
         'p_note': r.note.isEmpty ? null : r.note,
+        if (half != null) 'p_new_start': half.toUtc().toIso8601String(),
       });
     });
-    if (ok) _key.currentState?.reload();
+    if (ok && mounted) _afterChange(d);
   }
 
   Future<void> _toggleSlot(_SlotData d) async {
@@ -597,7 +647,10 @@ class _SlotDetailScreenState extends State<SlotDetailScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('${_dayLabel(starts)}  ${showTime(starts)}',
+                      Text(
+                          '${_dayLabel(starts)}  ${showTime(starts)} - '
+                          '${showTime(DateTime.parse(d.slot['ends_at'] as String).toLocal())}'
+                          '${_isHalf(d.slot) ? '  (30 min)' : ''}',
                           style: theme.textTheme.titleLarge),
                       const SizedBox(height: 4),
                       Text('Coach ${widget.coachName}'),
@@ -641,7 +694,7 @@ class _SlotDetailScreenState extends State<SlotDetailScreen> {
                   trailing: b['status'] == 'BOOKED'
                       ? PopupMenuButton<String>(
                           onSelected: (v) =>
-                              v == 'move' ? _reschedule(d, b) : _cancel(b),
+                              v == 'move' ? _reschedule(d, b) : _cancel(d, b),
                           itemBuilder: (_) => const [
                             PopupMenuItem(
                                 value: 'move', child: Text('Move to another session')),
@@ -732,7 +785,7 @@ class _PickSlotScreen extends StatelessWidget {
         load: () async {
           final rows = await db
               .from('slots')
-              .select('id, starts_at, capacity, bookings(status)')
+              .select('id, starts_at, ends_at, capacity, bookings(status)')
               .eq('coach_id', coachId)
               .eq('is_cancelled', false)
               .gte('starts_at', DateTime.now().toUtc().toIso8601String())
@@ -754,11 +807,13 @@ class _PickSlotScreen extends StatelessWidget {
                 final taken = _takenCount(r);
                 final cap = r['capacity'] as int;
                 return ListTile(
-                  title: Text('${_dayLabel(starts)}  ${showTime(starts)}'),
+                  title: Text('${_dayLabel(starts)}  ${showTime(starts)}'
+                      '${_isHalf(r) ? '  (30 min)' : ''}'),
                   trailing: Text(taken >= cap ? 'Full' : '$taken/$cap'),
                   enabled: taken < cap,
-                  onTap: () => Navigator.of(context).pop(r['id'] as String),
+                  onTap: () => Navigator.of(context).pop(r),
                 );
+
               }),
           ]);
         },

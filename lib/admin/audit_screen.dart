@@ -179,7 +179,7 @@ class _AuditScreenState extends State<AuditScreen> {
     final note = r['note'] as String?;
     showDialog<void>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (ctx) => AlertDialog(
         title: Text(_title(r)),
         content: SingleChildScrollView(
           child: Column(
@@ -197,7 +197,7 @@ class _AuditScreenState extends State<AuditScreen> {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.of(context).pop(),
+              onPressed: () => Navigator.of(ctx).pop(),
               child: const Text('Close'))
         ],
       ),

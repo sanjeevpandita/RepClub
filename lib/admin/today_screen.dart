@@ -163,18 +163,18 @@ class _TodayScreenState extends State<TodayScreen> {
   Future<void> _noShow(_TodayRow r) async {
     final yes = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (ctx) => AlertDialog(
         title: const Text('Mark as no-show?'),
         content: Text(
           '${r.memberName} will lose 1 credit for the ${showTime(r.startsAt)} session.',
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
+            onPressed: () => Navigator.of(ctx).pop(false),
             child: const Text('Back'),
           ),
           FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
+            onPressed: () => Navigator.of(ctx).pop(true),
             style: FilledButton.styleFrom(minimumSize: const Size(0, 44)),
             child: const Text('No-show'),
           ),

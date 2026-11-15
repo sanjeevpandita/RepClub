@@ -32,3 +32,6 @@ new scripts are added in both places.
 | `23_exercise_media.sql` | Exercise how-to: video link, up to 5 photos, storage bucket. |
 | `24_preview_delete_luis_and_members.sql` | Read-only preview for `25`. |
 | `25_delete_luis_and_members.sql` | **Destructive, one-off.** Deletes coach Luis and all members except Carla and Sanjeev. |
+| `26_half_hour_sessions.sql` | 30-minute (HIIT) sessions: package session length, split/join an hour, gym count by overlap. |
+| `27_one_package_per_kind.sql` | One credit package and one Monthly Pass at a time (no queuing a second of the same kind). |
+| `28_no_show_in_advance.sql` | Coach/admin may mark a booked session as a no-show before it starts (member away); 1 credit taken at once. |

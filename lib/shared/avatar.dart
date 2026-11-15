@@ -63,17 +63,17 @@ class _AvatarPickerState extends State<AvatarPicker> {
   Future<void> _choose() async {
     final source = await showModalBottomSheet<ImageSource>(
       context: context,
-      builder: (_) => SafeArea(
+      builder: (ctx) => SafeArea(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           ListTile(
             leading: const Icon(Icons.photo_library_outlined),
             title: const Text('Choose from gallery'),
-            onTap: () => Navigator.of(context).pop(ImageSource.gallery),
+            onTap: () => Navigator.of(ctx).pop(ImageSource.gallery),
           ),
           ListTile(
             leading: const Icon(Icons.photo_camera_outlined),
             title: const Text('Take a photo'),
-            onTap: () => Navigator.of(context).pop(ImageSource.camera),
+            onTap: () => Navigator.of(ctx).pop(ImageSource.camera),
           ),
         ]),
       ),

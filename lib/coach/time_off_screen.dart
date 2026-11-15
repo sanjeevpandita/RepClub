@@ -140,7 +140,7 @@ class _CoachTimeOffScreenState extends State<CoachTimeOffScreen> {
               .select('id, start_date, end_date, note')
               .eq('coach_id', db.auth.currentUser!.id)
               .gte('end_date', isoDate(DateTime.now()))
-              .order('start_date') as List;
+              .order('start_date', ascending: true) as List;
           return rows.cast<Map<String, dynamic>>();
         },
         builder: (context, rows, reload) {

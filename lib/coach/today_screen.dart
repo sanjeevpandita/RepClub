@@ -65,7 +65,7 @@ class _CoachTodayScreenState extends State<CoachTodayScreen> {
           .eq('is_cancelled', false)
           .gte('starts_at', start.toUtc().toIso8601String())
           .lt('starts_at', end.toUtc().toIso8601String())
-          .order('starts_at');
+          .order('starts_at', ascending: true);
       final ids = <String>{
         for (final s in slots)
           for (final b in (s['bookings'] as List))
@@ -129,16 +129,16 @@ class _CoachTodayScreenState extends State<CoachTodayScreen> {
   Future<void> _noShow(_Row r) async {
     final yes = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (ctx) => AlertDialog(
         title: const Text('Mark as no-show?'),
         content: Text(
             '${r.memberName} will lose 1 credit for the ${showTime(r.startsAt)} session.'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
+              onPressed: () => Navigator.of(ctx).pop(false),
               child: const Text('Back')),
           FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
+              onPressed: () => Navigator.of(ctx).pop(true),
               style: FilledButton.styleFrom(minimumSize: const Size(0, 44)),
               child: const Text('No-show')),
         ],

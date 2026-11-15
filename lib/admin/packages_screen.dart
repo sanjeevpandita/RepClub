@@ -11,7 +11,11 @@ class PackageType {
         priceEur = (r['price_eur'] as num).toDouble(),
         validityDays = r['validity_days'] as int,
         isActive = r['is_active'] as bool,
-        isPass = r['kind'] == 'PASS';
+        isPass = r['kind'] == 'PASS',
+        isHalfHour = (r['session_minutes'] as int? ?? 60) == 30;
+
+  /// True for a 30-minute (HIIT) session package: 1 credit = one 30-minute session.
+  final bool isHalfHour;
 
   final bool isPass;
   final String id;
@@ -138,7 +142,7 @@ class _PackagesScreenState extends State<PackagesScreen> {
               ]),
               const SizedBox(height: 4),
               Text(
-                  '${p.isPass ? 'Monthly Pass, unlimited gym' : '${p.credits} credits'}  ·  ${_eur(p.priceEur)}  ·  ${p.validityDays} days'),
+                  '${p.isPass ? 'Monthly Pass, unlimited gym' : '${p.credits} credits${p.isHalfHour ? ' of 30 min' : ''}'}  ·  ${_eur(p.priceEur)}  ·  ${p.validityDays} days'),
               const SizedBox(height: 8),
               Row(children: [
                 TextButton.icon(
@@ -192,6 +196,7 @@ class _PackageFormScreenState extends State<PackageFormScreen> {
       TextEditingController(text: widget.existing?.validityDays.toString());
   late bool _active = widget.existing?.isActive ?? true;
   late bool _pass = widget.existing?.isPass ?? false;
+  late bool _halfHour = widget.existing?.isHalfHour ?? false;
   bool _saving = false;
 
   @override
@@ -215,6 +220,7 @@ class _PackageFormScreenState extends State<PackageFormScreen> {
       'name': _name.text.trim(),
       'kind': _pass ? 'PASS' : 'CREDITS',
       'credits': _pass ? 0 : int.parse(_credits.text.trim()),
+      'session_minutes': !_pass && _halfHour ? 30 : 60,
       'price_eur': double.parse(_price.text.trim().replaceAll(',', '.')),
       'validity_days': int.parse(_days.text.trim()),
       'is_active': _active,
@@ -263,6 +269,14 @@ class _PackageFormScreenState extends State<PackageFormScreen> {
                   : null,
             ),
             if (!_pass) ...[
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('30-minute sessions (HIIT)'),
+                subtitle: const Text(
+                    'Members with this package can only book 30-minute coach sessions. 1 credit = one 30-minute session'),
+                value: _halfHour,
+                onChanged: (v) => setState(() => _halfHour = v),
+              ),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _credits,

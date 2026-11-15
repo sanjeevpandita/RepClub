@@ -162,8 +162,8 @@ class _CreditsTab extends StatelessWidget {
                 .select(
                     'id, member_package_id, type, delta, reason_code, note, is_void, created_at')
                 .eq('member_id', uid)
-                .order('created_at')
-                .order('id') as List)
+                .order('created_at', ascending: true)
+                .order('id', ascending: true) as List)
             .cast<Map<String, dynamic>>();
         // Running balance per package, oldest first.
         final run = <String, int>{};

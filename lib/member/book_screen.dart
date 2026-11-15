@@ -1,25 +1,21 @@
 import 'package:flutter/material.dart';
 
 import '../shared/common.dart';
+import '../shared/session_length.dart';
 import 'booking_events.dart';
 
 const _weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const _daysAhead = 14;
 
-class _Slot {
-  _Slot(this.id, this.start, this.end, this.taken);
-  final String id;
-  final DateTime start;
-  final DateTime end;
-  final bool taken;
-}
+typedef _Slot = SessionSlot;
 
 class _BookData {
-  _BookData(this.slots, this.mine, this.coach, this.canSelfBook);
+  _BookData(this.slots, this.mine, this.coach, this.canSelfBook, this.minutes);
   final List<_Slot> slots;
   final Map<String, String> mine; // slot id -> booking id (own, still booked)
   final String coach;
   final bool canSelfBook;
+  final int minutes; // session length of the active package (30 or 60)
 }
 
 Future<_BookData> _load() async {
@@ -43,6 +39,7 @@ Future<_BookData> _load() async {
       .select('id, slot_id')
       .eq('member_id', uid)
       .eq('status', 'BOOKED') as List;
+  final minutes = await memberSessionMinutes(uid);
   return _BookData(
     [
       for (final r in rows)
@@ -56,6 +53,7 @@ Future<_BookData> _load() async {
     {for (final b in bookings) b['slot_id'] as String: b['id'] as String},
     coach,
     mp?['can_self_book'] != false,
+    minutes,
   );
 }
 
@@ -128,8 +126,11 @@ class _BookScreenState extends State<BookScreen> {
       if (!mounted) return;
       final id = _moving!;
       final ok = await attempt(context, () async {
-        await db.rpc('reschedule_booking',
-            params: {'p_booking': id, 'p_new_slot': s.id});
+        await db.rpc('reschedule_booking', params: {
+          'p_booking': id,
+          'p_new_slot': s.id,
+          if (s.pStart != null) 'p_new_start': s.pStart!.toUtc().toIso8601String(),
+        });
       });
       if (ok) {
         setState(() => _moving = null);
@@ -141,7 +142,10 @@ class _BookScreenState extends State<BookScreen> {
     if (!await _confirm('Book session', 'Book ${_label(s)}?', 'Book')) return;
     if (!mounted) return;
     final ok = await attempt(context, () async {
-      await db.rpc('create_booking', params: {'p_slot': s.id});
+      await db.rpc('create_booking', params: {
+        'p_slot': s.id,
+        if (s.pStart != null) 'p_start': s.pStart!.toUtc().toIso8601String(),
+      });
     });
     if (ok) {
       if (mounted) snack(context, 'Session booked');
@@ -222,18 +226,36 @@ class _BookScreenState extends State<BookScreen> {
               key: _loader,
               load: _load,
               builder: (context, data, reload) {
-                final slots =
-                    data.slots.where((s) => _sameDay(s.start, _day)).toList();
-                final banner = data.canSelfBook
-                    ? const SizedBox.shrink()
-                    : const Card(
-                        child: ListTile(
-                          leading: Icon(Icons.info_outline),
-                          title: Text('Your coach books your sessions'),
-                          subtitle: Text(
-                              'Ask your coach to book or change a session for you.'),
-                        ),
-                      );
+                // A move keeps the booking's own length; a new booking uses the package's.
+                var minutes = data.minutes;
+                if (_moving != null) {
+                  for (final s in data.slots) {
+                    if (data.mine[s.id] == _moving) minutes = s.isHalf ? 30 : 60;
+                  }
+                }
+                final slots = sessionChoices(
+                        data.slots.where((s) => _sameDay(s.start, _day)).toList(),
+                        minutes,
+                        keep: data.mine.keys.toSet())
+                    .toList();
+                final banner = Column(children: [
+                  if (data.minutes == 30)
+                    const Card(
+                      child: ListTile(
+                        leading: Icon(Icons.timer_outlined),
+                        title: Text('Your package is for 30-minute sessions'),
+                      ),
+                    ),
+                  if (!data.canSelfBook)
+                    const Card(
+                      child: ListTile(
+                        leading: Icon(Icons.info_outline),
+                        title: Text('Your coach books your sessions'),
+                        subtitle: Text(
+                            'Ask your coach to book or change a session for you.'),
+                      ),
+                    ),
+                ]);
                 if (slots.isEmpty) {
                   return ListView(padding: const EdgeInsets.all(12), children: [
                     banner,
@@ -259,7 +281,10 @@ class _BookScreenState extends State<BookScreen> {
   Widget _tile(BuildContext context, _Slot s, _BookData data) {
     final theme = Theme.of(context);
     final bookingId = data.mine[s.id];
-    final time = '${showTime(s.start)} - ${showTime(s.end)}';
+    final tag = lengthTag(s.start, s.end);
+    final time =
+        '${showTime(s.start)} - ${showTime(s.end)}${tag.isEmpty ? '' : '  ($tag)'}';
+
     if (bookingId != null) {
       return Card(
         color: theme.colorScheme.primary.withValues(alpha: 0.15),

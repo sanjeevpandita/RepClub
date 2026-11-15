@@ -14,6 +14,7 @@ import 'admin/settings_screen.dart';
 import 'admin/workout_library_screen.dart';
 import 'admin/dashboard_screen.dart';
 import 'auth/app_session.dart';
+import 'coach/calendar_screen.dart';
 import 'coach/coach_shell.dart';
 import 'coach/members_screen.dart';
 import 'coach/qr_screen.dart';
@@ -90,6 +91,11 @@ GoRouter buildRouter(AppSession session) {
           StatefulShellBranch(routes: [
             GoRoute(
                 path: '/coach', builder: (_, _) => const CoachTodayScreen()),
+          ]),
+          StatefulShellBranch(routes: [
+            GoRoute(
+                path: '/coach/calendar',
+                builder: (_, _) => const CoachCalendarScreen()),
           ]),
           StatefulShellBranch(routes: [
             GoRoute(

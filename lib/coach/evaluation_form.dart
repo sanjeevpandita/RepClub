@@ -113,15 +113,15 @@ class _EvaluationFormState extends State<EvaluationForm> {
   Future<void> _delete() async {
     final yes = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (ctx) => AlertDialog(
         title: const Text('Delete this evaluation?'),
         content: const Text('This cannot be undone.'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
+              onPressed: () => Navigator.of(ctx).pop(false),
               child: const Text('Back')),
           FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
+              onPressed: () => Navigator.of(ctx).pop(true),
               child: const Text('Delete')),
         ],
       ),

@@ -725,13 +725,24 @@ class _AssignPackageScreenState extends State<AssignPackageScreen> {
                     for (final t in _types!)
                       DropdownMenuItem(
                         value: t,
+                        // One credit package and one Monthly Pass at a time (db/27).
+                        enabled: !widget.currentKinds.contains(t['kind']),
                         child: Text(t['kind'] == 'PASS'
                             ? '${t['name']} (unlimited gym, €${t['price_eur']})'
-                            : '${t['name']} (${t['credits']} credits, €${t['price_eur']})'),
+                            : '${t['name']} (${t['credits']} credits${(t['session_minutes'] as int? ?? 60) == 30 ? ' of 30 min' : ''}, €${t['price_eur']})'),
                       ),
                   ],
                   onChanged: _selectType,
                 ),
+                if (widget.currentKinds.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      'This member already has ${widget.currentKinds.length == 2 ? 'a credit package and a Monthly Pass' : (widget.currentKinds.contains('PASS') ? 'a Monthly Pass' : 'a credit package')}. '
+                      'A member can have one of each at a time: cancel the current one to assign a new one of the same kind.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
                 gap,
                 _dateField('Purchase date', _purchase, () async {
                   final d = await _pick(_purchase);
@@ -774,7 +785,8 @@ class _AssignPackageScreenState extends State<AssignPackageScreen> {
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Activate now'),
                   subtitle: const Text(
-                      'Off = queued until the current package ends or you activate it'),
+                      'Off = assigned but waits until you activate it'),
+
                   value: _activate,
                   onChanged: (v) => setState(() => _activate = v),
                 ),
@@ -811,8 +823,8 @@ class _CreditsTab extends StatelessWidget {
               .from('credit_transactions')
               .select()
               .eq('member_id', memberId)
-              .order('created_at')
-              .order('id')
+              .order('created_at', ascending: true)
+              .order('id', ascending: true)
               .range(from, from + 999);
           all.addAll(page);
           if (page.length < 1000) break;

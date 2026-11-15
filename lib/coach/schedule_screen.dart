@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../shared/common.dart';
+import '../shared/session_length.dart';
 import 'time_off_screen.dart';
 
 const _weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -31,7 +32,7 @@ Future<_Data> _load() async {
       .eq('is_cancelled', false)
       .gte('starts_at', now.toUtc().toIso8601String())
       .lt('starts_at', to.toUtc().toIso8601String())
-      .order('starts_at') as List;
+      .order('starts_at', ascending: true) as List;
   final slots = <_Slot>[];
   for (final r in rows) {
     Map? active;
@@ -62,6 +63,7 @@ class _CoachScheduleScreenState extends State<CoachScheduleScreen> {
   final _loader = GlobalKey<LoaderState<_Data>>();
   late DateTime _day = _today();
   String? _moving; // booking id being moved
+  _Slot? _movingSlot; // its session (to keep a 30-minute booking 30 minutes)
 
   static DateTime _today() {
     final n = DateTime.now();
@@ -126,15 +128,25 @@ class _CoachScheduleScreenState extends State<CoachScheduleScreen> {
 
   Future<void> _freeSlotTap(_Slot s) async {
     if (_moving != null) {
+      final id = _moving!;
+      // A 30-minute booking moved into a free hour: choose which half.
+      DateTime? half;
+      final from = _movingSlot;
+      if (from != null && isHalfHour(from.start, from.end) && !isHalfHour(s.start, s.end)) {
+        half = await pickHalf(context, s.start);
+        if (half == null || !mounted) return;
+      }
       if (!await _confirm('Move session', 'Move the booking to ${_label(s)}?',
           'Move')) {
         return;
       }
       if (!mounted) return;
-      final id = _moving!;
       final ok = await attempt(context, () async {
-        await db.rpc('reschedule_booking',
-            params: {'p_booking': id, 'p_new_slot': s.id});
+        await db.rpc('reschedule_booking', params: {
+          'p_booking': id,
+          'p_new_slot': s.id,
+          if (half != null) 'p_new_start': half.toUtc().toIso8601String(),
+        });
       });
       if (ok) {
         setState(() => _moving = null);
@@ -145,13 +157,27 @@ class _CoachScheduleScreenState extends State<CoachScheduleScreen> {
     }
     final m = await _pickMember();
     if (m == null || !mounted) return;
-    if (!await _confirm('Book session', 'Book ${m.name} on ${_label(s)}?',
-        'Book')) {
+    // Members with a 30-minute package get half of a free hour.
+    DateTime? half;
+    if (!isHalfHour(s.start, s.end) && await memberSessionMinutes(m.id) == 30) {
+      if (!mounted) return;
+      half = await pickHalf(context, s.start);
+      if (half == null) return;
+    }
+    if (!mounted) return;
+    final when = half == null
+        ? _label(s)
+        : '${_weekdays[half.weekday - 1]} ${showDate(half)}, ${showTime(half)}-${showTime(half.add(halfHour))}';
+    if (!await _confirm('Book session', 'Book ${m.name} on $when?', 'Book')) {
       return;
     }
     if (!mounted) return;
     final ok = await attempt(context, () async {
-      await db.rpc('create_booking', params: {'p_slot': s.id, 'p_member': m.id});
+      await db.rpc('create_booking', params: {
+        'p_slot': s.id,
+        'p_member': m.id,
+        if (half != null) 'p_start': half.toUtc().toIso8601String(),
+      });
     });
     if (ok) {
       if (mounted) snack(context, 'Session booked');
@@ -264,7 +290,10 @@ class _CoachScheduleScreenState extends State<CoachScheduleScreen> {
   }
 
   Widget _tile(ThemeData theme, _Slot s, _Data data) {
-    final time = '${showTime(s.start)} - ${showTime(s.end)}';
+    final tag = lengthTag(s.start, s.end);
+    final time =
+        '${showTime(s.start)} - ${showTime(s.end)}${tag.isEmpty ? '' : '  ($tag)'}';
+
     if (s.bookingId != null) {
       final name = data.names[s.memberId] ?? 'Member';
       return Card(
@@ -278,7 +307,12 @@ class _CoachScheduleScreenState extends State<CoachScheduleScreen> {
               ? const Text('Moving...')
               : PopupMenuButton<String>(
                   onSelected: (v) {
-                    if (v == 'move') setState(() => _moving = s.bookingId);
+                    if (v == 'move') {
+                      setState(() {
+                        _moving = s.bookingId;
+                        _movingSlot = s;
+                      });
+                    }
                     if (v == 'cancel') _cancel(s, name);
                   },
                   itemBuilder: (_) => const [

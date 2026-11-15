@@ -2,26 +2,22 @@ import 'package:flutter/material.dart';
 
 import '../app.dart';
 import '../shared/common.dart';
+import '../shared/session_length.dart';
 import '../shared/workout.dart' show weekdayNames;
 import 'booking_events.dart';
 import 'my_calendar_screen.dart' show coachColor;
 
 const _weeksAhead = 5; // how many weeks after this one can be shown
 
-class _Slot {
-  _Slot(this.id, this.start, this.end, this.taken);
-  final String id;
-  final DateTime start;
-  final DateTime end;
-  final bool taken;
-}
+typedef _Slot = SessionSlot;
 
 class _WeekData {
-  _WeekData(this.slots, this.mine, this.coach, this.canSelfBook);
+  _WeekData(this.slots, this.mine, this.coach, this.canSelfBook, this.minutes);
   final List<_Slot> slots;
   final Map<String, ({String id, String status})> mine; // slot id -> own booking
   final String coach;
   final bool canSelfBook;
+  final int minutes; // session length of the active package (30 or 60)
 }
 
 DateTime _mondayOf(DateTime d) => DateTime(d.year, d.month, d.day - (d.weekday - 1));
@@ -58,6 +54,7 @@ Future<_WeekData> _load(DateTime monday) async {
           .eq('member_id', uid)
           .neq('status', 'CANCELLED')
           .inFilter('slot_id', [for (final s in slots) s.id]) as List;
+  final minutes = await memberSessionMinutes(uid);
   return _WeekData(
     slots,
     {
@@ -66,6 +63,7 @@ Future<_WeekData> _load(DateTime monday) async {
     },
     coach,
     mp?['can_self_book'] != false,
+    minutes,
   );
 }
 
@@ -136,8 +134,11 @@ class _CoachWeekViewState extends State<CoachWeekView> {
       if (!mounted) return;
       final id = _moving!;
       final ok = await attempt(context, () async {
-        await db.rpc('reschedule_booking',
-            params: {'p_booking': id, 'p_new_slot': s.id});
+        await db.rpc('reschedule_booking', params: {
+          'p_booking': id,
+          'p_new_slot': s.id,
+          if (s.pStart != null) 'p_new_start': s.pStart!.toUtc().toIso8601String(),
+        });
       });
       if (ok) {
         _moving = null;
@@ -154,7 +155,10 @@ class _CoachWeekViewState extends State<CoachWeekView> {
     if (!await _confirm('Book session', 'Book ${_label(s)}?', 'Book')) return;
     if (!mounted) return;
     final ok = await attempt(context, () async {
-      await db.rpc('create_booking', params: {'p_slot': s.id});
+      await db.rpc('create_booking', params: {
+        'p_slot': s.id,
+        if (s.pStart != null) 'p_start': s.pStart!.toUtc().toIso8601String(),
+      });
     });
     if (ok) {
       if (mounted) snack(context, 'Session booked');
@@ -260,11 +264,20 @@ class _CoachWeekViewState extends State<CoachWeekView> {
       for (var i = 0; i < 7; i++)
         DateTime(_monday.year, _monday.month, _monday.day + i)
     ];
+    // A move keeps the booking's own length; a new booking uses the package's.
+    var minutes = data.minutes;
+    if (_moving != null) {
+      for (final s in data.slots) {
+        if (data.mine[s.id]?.id == _moving) minutes = s.isHalf ? 30 : 60;
+      }
+    }
+    final shown =
+        sessionChoices(data.slots, minutes, keep: data.mine.keys.toSet());
     // Each distinct start time is one row.
-    final times = {for (final s in data.slots) showTime(s.start)}.toList()
+    final times = {for (final s in shown) showTime(s.start)}.toList()
       ..sort();
     final cell = <String, _Slot>{
-      for (final s in data.slots)
+      for (final s in shown)
         '${s.start.weekday}|${showTime(s.start)}': s,
     };
 
@@ -275,9 +288,13 @@ class _CoachWeekViewState extends State<CoachWeekView> {
         children: [
           if (data.coach.isNotEmpty)
             Text('Coach ${data.coach}', style: theme.textTheme.titleSmall),
+          if (data.minutes == 30)
+            Text('Your package is for 30-minute sessions',
+                style: theme.textTheme.bodySmall?.copyWith(color: repLime)),
           Text(
             data.canSelfBook
                 ? 'Tap OPEN to book. Tap YOU to move or cancel.'
+
                 : 'Your coach books your sessions. Tap YOU to move or cancel.',
             style: theme.textTheme.bodySmall?.copyWith(color: Colors.white60),
           ),

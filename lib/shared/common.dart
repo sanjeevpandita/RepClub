@@ -10,9 +10,14 @@ const reasonLabels = {
   'INJURY': 'Injury',
   'GYM_CLOSURE': 'Gym closure',
   'COACH_UNAVAILABLE': 'Coach unavailable',
-  'GOODWILL': 'Goodwill',
+  'GOODWILL': 'Goodwill (e.g. free class)',
+  'MISSED_SCAN': 'Came but did not scan',
+  'NO_SHOW': 'Did not show up',
   'OTHER': 'Other (note required)',
 };
+
+/// Reasons that only make sense for credit changes (db/32).
+const creditOnlyReasons = {'MISSED_SCAN', 'NO_SHOW'};
 
 String two(int n) => n.toString().padLeft(2, '0');
 String isoDate(DateTime d) => '${d.year}-${two(d.month)}-${two(d.day)}';
@@ -101,20 +106,31 @@ typedef ReasonResult = ({int? delta, String reason, String note});
 
 class ReasonDialog extends StatefulWidget {
   const ReasonDialog(
-      {super.key, required this.title, required this.confirm, this.withDelta = false});
+      {super.key,
+      required this.title,
+      required this.confirm,
+      this.withDelta = false,
+      this.sign});
   final String title;
   final String confirm;
   final bool withDelta;
+
+  /// Credit change in one direction: 1 = add credits, -1 = remove credits.
+  /// Asks for a plain number (starts at 1); the result delta carries the sign.
+  final int? sign;
 
   @override
   State<ReasonDialog> createState() => ReasonDialogState();
 }
 
 class ReasonDialogState extends State<ReasonDialog> {
-  final _delta = TextEditingController();
+  late final _delta =
+      TextEditingController(text: widget.sign == null ? '' : '1');
   final _note = TextEditingController();
-  String _reason = 'GOODWILL';
+  late String _reason = widget.sign == -1 ? 'MISSED_SCAN' : 'GOODWILL';
   String? _error;
+
+  bool get _credits => widget.withDelta || widget.sign != null;
 
   @override
   void dispose() {
@@ -125,7 +141,14 @@ class ReasonDialogState extends State<ReasonDialog> {
 
   void _ok() {
     int? delta;
-    if (widget.withDelta) {
+    if (widget.sign != null) {
+      final n = int.tryParse(_delta.text.trim());
+      if (n == null || n < 1) {
+        setState(() => _error = 'Enter a number such as 1 or 2');
+        return;
+      }
+      delta = n * widget.sign!;
+    } else if (widget.withDelta) {
       delta = int.tryParse(_delta.text.trim().replaceFirst('+', ''));
       if (delta == null || delta == 0) {
         setState(() => _error = 'Enter a number such as 2 or -1');
@@ -148,7 +171,18 @@ class ReasonDialogState extends State<ReasonDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (widget.withDelta) ...[
+            if (widget.sign != null) ...[
+              TextField(
+                controller: _delta,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                    labelText: widget.sign! > 0
+                        ? 'Credits to add'
+                        : 'Credits to remove',
+                    border: const OutlineInputBorder()),
+              ),
+              const SizedBox(height: 12),
+            ] else if (widget.withDelta) ...[
               TextField(
                 controller: _delta,
                 keyboardType:
@@ -166,7 +200,8 @@ class ReasonDialogState extends State<ReasonDialog> {
                   labelText: 'Reason', border: OutlineInputBorder()),
               items: [
                 for (final e in reasonLabels.entries)
-                  DropdownMenuItem(value: e.key, child: Text(e.value)),
+                  if (_credits || !creditOnlyReasons.contains(e.key))
+                    DropdownMenuItem(value: e.key, child: Text(e.value)),
               ],
               onChanged: (v) => setState(() => _reason = v!),
             ),

@@ -177,6 +177,85 @@ class _CoachesScreenState extends State<CoachesScreen> {
   }
 }
 
+/// Confirmation for deleting a coach: lists what goes and what stays, and
+/// only enables Delete once the admin has typed DELETE.
+class _DeleteCoachDialog extends StatefulWidget {
+  const _DeleteCoachDialog({required this.name, required this.preview});
+  final String name;
+  final Map<String, dynamic> preview;
+
+  @override
+  State<_DeleteCoachDialog> createState() => _DeleteCoachDialogState();
+}
+
+class _DeleteCoachDialogState extends State<_DeleteCoachDialog> {
+  final _typed = TextEditingController();
+
+  @override
+  void dispose() {
+    _typed.dispose();
+    super.dispose();
+  }
+
+  String _n(String key, String word) {
+    final n = (widget.preview[key] as num?)?.toInt() ?? 0;
+    return '$n $word${n == 1 ? '' : 's'}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ok = _typed.text.trim().toUpperCase() == 'DELETE';
+    final error = Theme.of(context).colorScheme.error;
+    return AlertDialog(
+      title: Text('Delete ${widget.name}?'),
+      content: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('This cannot be undone. Deleted for good:'),
+            const SizedBox(height: 6),
+            Text('- the login, profile, check-in QR, weekly hours and holidays\n'
+                '- ${_n('sessions', 'session')} in the calendar\n'
+                '- ${_n('bookings_past', 'past booking')} and '
+                '${_n('bookings_upcoming', 'upcoming booking')} in them'),
+            const SizedBox(height: 10),
+            Text(
+              '${_n('members', 'member')} stay but will have no coach. '
+              'Their credits, packages, workouts and evaluations are kept.',
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: _typed,
+              autofocus: true,
+              textCapitalization: TextCapitalization.characters,
+              onChanged: (_) => setState(() {}),
+              decoration: const InputDecoration(
+                labelText: 'Type DELETE to confirm',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Back'),
+        ),
+        FilledButton(
+          onPressed: ok ? () => Navigator.of(context).pop(true) : null,
+          style: FilledButton.styleFrom(
+            backgroundColor: error,
+            minimumSize: const Size(0, 44),
+          ),
+          child: const Text('Delete'),
+        ),
+      ],
+    );
+  }
+}
+
 class CoachDetailScreen extends StatefulWidget {
   const CoachDetailScreen({super.key, required this.coach});
   final Coach coach;
@@ -266,6 +345,44 @@ class _CoachDetailScreenState extends State<CoachDetailScreen> {
       setState(() => _saving = false);
       _snack(e.message);
     }
+  }
+
+  /// Deletes the coach for good (db/32): login, profile, QR, weekly hours,
+  /// holidays, sessions and the bookings in them. Members stay, without a
+  /// coach. Shows what will go first and asks the admin to type DELETE.
+  Future<void> _delete() async {
+    Map<String, dynamic> p;
+    try {
+      p = Map<String, dynamic>.from(await _db.rpc(
+        'admin_delete_coach_preview',
+        params: {'p_coach': widget.coach.id},
+      ) as Map);
+    } on PostgrestException catch (e) {
+      _snack(e.message);
+      return;
+    }
+    if (!mounted) return;
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => _DeleteCoachDialog(name: widget.coach.name, preview: p),
+    );
+    if (yes != true || !mounted) return;
+    setState(() => _saving = true);
+    try {
+      await _db.rpc('admin_delete_coach', params: {'p_coach': widget.coach.id});
+    } on PostgrestException catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      _snack(e.message);
+      return;
+    }
+    // Profile photo: not removable from SQL, so remove it here (ignore if none).
+    try {
+      await _db.storage.from('avatars').remove(['${widget.coach.id}.jpg']);
+    } catch (_) {}
+    if (!mounted) return;
+    _snack('${widget.coach.name} was deleted');
+    Navigator.of(context).pop(true);
   }
 
   Future<void> _toggleQr() async {
@@ -411,6 +528,17 @@ class _CoachDetailScreenState extends State<CoachDetailScreen> {
                   leading: const Icon(Icons.person_outline),
                   title: Text(n),
                 ),
+            const Divider(height: 40),
+            OutlinedButton.icon(
+              onPressed: _saving ? null : _delete,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: theme.colorScheme.error,
+                side: BorderSide(color: theme.colorScheme.error),
+              ),
+              icon: const Icon(Icons.delete_forever_outlined),
+              label: const Text('Delete coach'),
+            ),
+            const SizedBox(height: 24),
           ],
         ),
       ),

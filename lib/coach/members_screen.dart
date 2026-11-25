@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../admin/members_screen.dart' show MemberEquipmentTab, MemberPackageTab;
+import '../admin/members_screen.dart' show MemberCreditsTab, MemberEquipmentTab, MemberPackageTab;
 import '../member/weight_chart.dart';
 import '../shared/avatar.dart';
 import '../shared/common.dart';
@@ -97,7 +97,7 @@ class CoachMemberDetail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 5,
+      length: 6,
       child: Scaffold(
         appBar: AppBar(
           title: Text(name),
@@ -105,6 +105,7 @@ class CoachMemberDetail extends StatelessWidget {
             Tab(text: 'Overview'),
             Tab(text: 'Workouts'),
             Tab(text: 'Packages'),
+            Tab(text: 'Credits'),
             Tab(text: 'Evaluations'),
             Tab(text: 'Equipment'),
           ]),
@@ -113,6 +114,7 @@ class CoachMemberDetail extends StatelessWidget {
           _Overview(memberId: id, name: name),
           WorkoutPlanList(memberId: id, canManage: true),
           MemberPackageTab(memberId: id),
+          MemberCreditsTab(memberId: id),
           _Evaluations(memberId: id),
           MemberEquipmentTab(memberId: id),
         ]),

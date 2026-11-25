@@ -126,6 +126,48 @@ class _CoachTodayScreenState extends State<CoachTodayScreen> {
     }
   }
 
+  /// Mark attended by hand when the QR was not scanned (needs db/32). Also
+  /// turns a no-show into attended (no-show credit given back, balance same).
+  Future<void> _attended(_Row r) async {
+    final wasNoShow = r.status == 'NO_SHOW';
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Mark as attended?'),
+        content: Text(wasNoShow
+            ? '${r.memberName} was marked as a no-show for the '
+                '${showTime(r.startsAt)} session. Change it to attended? The '
+                'no-show credit is given back and 1 credit is used for the '
+                'session, so the balance stays the same.'
+            : '${r.memberName} will use 1 credit for the '
+                '${showTime(r.startsAt)} session.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Back')),
+          FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              style: FilledButton.styleFrom(minimumSize: const Size(0, 44)),
+              child: const Text('Attended')),
+        ],
+      ),
+    );
+    if (yes != true || !mounted) return;
+    int? left;
+    final ok = await attempt(context, () async {
+      final res =
+          await db.rpc('mark_attended', params: {'p_booking': r.bookingId});
+      if (res is Map) left = res['credits_left'] as int?;
+    });
+    if (!ok || !mounted) return;
+    snack(
+        context,
+        left == null
+            ? '${r.memberName} marked as attended'
+            : '${r.memberName} marked as attended. Credits left: $left');
+    _load();
+  }
+
   Future<void> _noShow(_Row r) async {
     final yes = await showDialog<bool>(
       context: context,
@@ -311,12 +353,24 @@ class _CoachTodayScreenState extends State<CoachTodayScreen> {
               Text(label,
                   style: TextStyle(color: color, fontWeight: FontWeight.bold)),
             ]),
-            if (r.status == 'BOOKED' && !now.isBefore(r.startsAt))
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                    onPressed: () => _noShow(r),
-                    child: const Text('Mark no-show')),
+            if (r.status == 'BOOKED' || r.status == 'NO_SHOW')
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton.icon(
+                    onPressed: () => _attended(r),
+                    icon: const Icon(Icons.how_to_reg_outlined, size: 20),
+                    label: const Text('Attended'),
+                  ),
+                  if (r.status == 'BOOKED' && !now.isBefore(r.startsAt))
+                    TextButton.icon(
+                      onPressed: () => _noShow(r),
+                      style: TextButton.styleFrom(
+                          foregroundColor: theme.colorScheme.error),
+                      icon: const Icon(Icons.person_off_outlined, size: 20),
+                      label: const Text('No-show'),
+                    ),
+                ],
               ),
           ],
         ),

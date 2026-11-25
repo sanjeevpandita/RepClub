@@ -159,6 +159,57 @@ class _CoachCalendarScreenState extends State<CoachCalendarScreen> {
     });
   }
 
+  /// Mark a member as attended when the QR was not scanned (forgot the
+  /// phone, coach forgot to scan). Works for past, today and future
+  /// sessions, and turns a no-show into attended (needs db/32).
+  Future<void> _attended(_Appt a) async {
+    final wasNoShow = a.status == 'NO_SHOW';
+    final ahead = DateTime.now().isBefore(a.start);
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Mark as attended?'),
+        content: Text(
+          wasNoShow
+              ? '${a.memberName} was marked as a no-show for the '
+                    '${showTime(a.start)} session on ${showDate(a.start)}. '
+                    'Change it to attended? The no-show credit is given back '
+                    'and 1 credit is used for the session, so the balance '
+                    'stays the same.'
+              : '${a.memberName} will use 1 credit for the '
+                    '${showTime(a.start)} session on ${showDate(a.start)}.'
+                    '${ahead ? '\n\nThis session has not happened yet. The '
+                              'credit is taken now.' : ''}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Back'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: FilledButton.styleFrom(minimumSize: const Size(0, 44)),
+            child: const Text('Attended'),
+          ),
+        ],
+      ),
+    );
+    if (yes != true || !mounted) return;
+    int? left;
+    final ok = await attempt(context, () async {
+      final r = await db.rpc('mark_attended', params: {'p_booking': a.bookingId});
+      if (r is Map) left = r['credits_left'] as int?;
+    });
+    if (!ok || !mounted) return;
+    snack(
+      context,
+      left == null
+          ? '${a.memberName} marked as attended'
+          : '${a.memberName} marked as attended. Credits left: $left',
+    );
+    setState(() => _version++);
+  }
+
   /// Any booked session can be marked as a no-show, also before it starts
   /// (member away without telling; needs db/28). 1 credit is taken at once.
   Future<void> _noShow(_Appt a) async {
@@ -571,8 +622,9 @@ class _CoachCalendarScreenState extends State<CoachCalendarScreen> {
     };
     final mins = a.end.difference(a.start).inMinutes;
     final booked = a.status == 'BOOKED';
+    final noShow = a.status == 'NO_SHOW';
     final upcoming = DateTime.now().isBefore(a.start);
-    // One row: time | name + status | Reschedule, Mark no-show.
+    // One row: time | name + status | Attended, Reschedule, No-show.
     return Card(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
@@ -614,6 +666,13 @@ class _CoachCalendarScreenState extends State<CoachCalendarScreen> {
                 ],
               ),
             ),
+            if (booked || noShow)
+              _action(
+                icon: Icons.how_to_reg_outlined,
+                text: 'Attended',
+                color: repLime,
+                onTap: () => _attended(a),
+              ),
             if (booked && upcoming)
               _action(
                 icon: Icons.swap_horiz,
@@ -645,7 +704,7 @@ class _CoachCalendarScreenState extends State<CoachCalendarScreen> {
       onTap: onTap,
       borderRadius: BorderRadius.circular(8),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [

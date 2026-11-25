@@ -243,7 +243,7 @@ class MemberDetailScreen extends StatelessWidget {
           children: [
             _ProfileTab(memberId: member.id),
             MemberPackageTab(memberId: member.id),
-            _CreditsTab(memberId: member.id),
+            MemberCreditsTab(memberId: member.id),
             _BookingsTab(memberId: member.id),
             _AttendanceTab(memberId: member.id),
             _WeightTab(memberId: member.id),
@@ -808,9 +808,38 @@ class _AssignPackageScreenState extends State<AssignPackageScreen> {
 
 // ------------------------------------------------------------ credits
 
-class _CreditsTab extends StatelessWidget {
-  const _CreditsTab({required this.memberId});
+/// Credit history with running balance, plus Add / Remove credits.
+/// Used by the admin member detail and the coach member detail (db/32 lets
+/// the member's own coach change credits too).
+class MemberCreditsTab extends StatelessWidget {
+  const MemberCreditsTab({super.key, required this.memberId});
   final String memberId;
+
+  Future<void> _change(
+      BuildContext context, int sign, Future<void> Function() reload) async {
+    final r = await showDialog<ReasonResult>(
+      context: context,
+      builder: (_) => ReasonDialog(
+          title: sign > 0 ? 'Add credits' : 'Remove credits',
+          confirm: sign > 0 ? 'Add' : 'Remove',
+          sign: sign),
+    );
+    if (r == null || !context.mounted) return;
+    final ok = await attempt(context, () async {
+      await db.rpc('admin_adjust_credits', params: {
+        'p_member': memberId,
+        'p_delta': r.delta,
+        'p_reason': r.reason,
+        'p_note': r.note.isEmpty ? null : r.note,
+      });
+    });
+    if (ok) {
+      if (context.mounted) {
+        snack(context, sign > 0 ? 'Credits added' : 'Credits removed');
+      }
+      await reload();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -846,13 +875,22 @@ class _CreditsTab extends StatelessWidget {
               ? 'System'
               : (names[r['created_by']] ?? 'Unknown');
         }
-        final bal = await db
+        // Active credit package, or a used-up one that has not expired yet
+        // (credits can still be added to it).
+        final pkgs = await db
             .from('member_package_balances')
-            .select('credits_remaining')
+            .select('credits_remaining, status, expiry_date')
             .eq('member_id', memberId)
-            .eq('status', 'ACTIVE')
-            .eq('kind', 'CREDITS')
-            .maybeSingle();
+            .inFilter('status', ['ACTIVE', 'EXHAUSTED'])
+            .eq('kind', 'CREDITS');
+        final today = isoDate(DateTime.now());
+        Map<String, dynamic>? bal;
+        for (final p in pkgs) {
+          if (p['status'] == 'ACTIVE') bal = p;
+        }
+        bal ??= pkgs
+            .where((p) => (p['expiry_date'] as String).compareTo(today) >= 0)
+            .firstOrNull;
         return (
           rows: rows.reversed.toList(), // newest first for display
           balance: bal?['credits_remaining'] as int?,
@@ -875,29 +913,28 @@ class _CreditsTab extends StatelessWidget {
                     ],
                   ),
                 ),
-                OutlinedButton(
-                  onPressed: d.balance == null
-                      ? null
-                      : () async {
-                          final r = await showDialog<ReasonResult>(
-                            context: context,
-                            builder: (_) => const ReasonDialog(
-                                title: 'Adjust credits',
-                                confirm: 'Apply',
-                                withDelta: true),
-                          );
-                          if (r == null || !context.mounted) return;
-                          final ok = await attempt(context, () async {
-                            await db.rpc('admin_adjust_credits', params: {
-                              'p_member': memberId,
-                              'p_delta': r.delta,
-                              'p_reason': r.reason,
-                              'p_note': r.note.isEmpty ? null : r.note,
-                            });
-                          });
-                          if (ok) reload();
-                        },
-                  child: const Text('Adjust'),
+                SizedBox(
+                  width: 120,
+                  child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: d.balance == null
+                          ? null
+                          : () => _change(context, 1, reload),
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text('Add'),
+                    ),
+                    const SizedBox(height: 6),
+                    OutlinedButton.icon(
+                      onPressed: d.balance == null || d.balance == 0
+                          ? null
+                          : () => _change(context, -1, reload),
+                      icon: const Icon(Icons.remove, size: 18),
+                      label: const Text('Remove'),
+                    ),
+                  ],
+                ),
                 ),
               ]),
             ),
@@ -917,7 +954,10 @@ class _CreditsTab extends StatelessWidget {
     final void_ = r['is_void'] as bool;
     final reason = r['reason_code'] as String?;
     final note = r['note'] as String?;
-    final type = (r['type'] as String).replaceAll('_', ' ').toLowerCase();
+    final rawType = r['type'] as String;
+    final type = rawType == 'ADMIN_ADJUSTMENT'
+        ? 'credit adjustment'
+        : rawType.replaceAll('_', ' ').toLowerCase();
     return ListTile(
       dense: true,
       title: Text(

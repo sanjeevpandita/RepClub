@@ -38,3 +38,4 @@ new scripts are added in both places.
 | `29_manual_no_shows.sql` | No automatic no-shows: nightly job only expires packages; admin marks missed sessions by hand (`admin_mark_past_no_shows`). |
 | `30_remove_old_no_show_job.sql` | Removes the hand-made `repclub-reconcile-no-shows` cron job; lists all jobs with their commands. |
 | `31_remove_old_jobs.sql` | Removes the hand-made `repclub-expire-packages` and `repclub-generate-slots` cron jobs (old functions, replaced by 29 and 06). |
+| `32_coach_credits_attended_delete_coach.sql` | Coach may add/remove credits for own members; `mark_attended` (coach/admin, also turns a no-show into attended); `admin_delete_coach` (+ preview); nightly no-show job back (`repclub-nightly-reconciliation`, replaces 29's package-expiry-only job); reasons MISSED_SCAN, NO_SHOW. |

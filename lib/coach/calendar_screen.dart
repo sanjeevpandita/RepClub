@@ -197,7 +197,10 @@ class _CoachCalendarScreenState extends State<CoachCalendarScreen> {
     if (yes != true || !mounted) return;
     int? left;
     final ok = await attempt(context, () async {
-      final r = await db.rpc('mark_attended', params: {'p_booking': a.bookingId});
+      final r = await db.rpc(
+        'mark_attended',
+        params: {'p_booking': a.bookingId},
+      );
       if (r is Map) left = r['credits_left'] as int?;
     });
     if (!ok || !mounted) return;
@@ -624,18 +627,42 @@ class _CoachCalendarScreenState extends State<CoachCalendarScreen> {
     final booked = a.status == 'BOOKED';
     final noShow = a.status == 'NO_SHOW';
     final upcoming = DateTime.now().isBefore(a.start);
-    // One row: time | name + status | Attended, Reschedule, No-show.
+    // One row: time | full name + status | Done, Move, NoShow.
+    final actions = <Widget>[
+      if (booked || noShow)
+        _action(
+          icon: Icons.how_to_reg_outlined,
+          text: 'Done',
+          color: actionGreen,
+          onTap: () => _attended(a),
+        ),
+      if (booked && upcoming)
+        _action(
+          icon: Icons.swap_horiz,
+          text: 'Move',
+          color: actionYellow,
+          onTap: () => _reschedule(a),
+        ),
+      if (booked)
+        _action(
+          icon: Icons.person_off_outlined,
+          text: 'NoShow',
+          color: actionRed,
+          onTap: () => _noShow(a),
+        ),
+    ];
     return Card(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
         child: Row(
           children: [
-            SizedBox(
-              width: 48,
+            ConstrainedBox(
+              constraints: const BoxConstraints(minWidth: 48),
               child: Column(
                 children: [
                   Text(
                     showTime(a.start),
+                    softWrap: false,
                     style: theme.textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.bold,
                       fontSize: 12,
@@ -643,6 +670,7 @@ class _CoachCalendarScreenState extends State<CoachCalendarScreen> {
                   ),
                   Text(
                     mins == 30 ? '30 min' : showTime(a.end),
+                    softWrap: false,
                     style: theme.textTheme.labelSmall?.copyWith(
                       color: Colors.white54,
                       fontSize: 9,
@@ -656,66 +684,24 @@ class _CoachCalendarScreenState extends State<CoachCalendarScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    a.memberName,
-                    style: const TextStyle(fontSize: 14),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  Text(a.memberName, style: const TextStyle(fontSize: 14)),
                   Text(label, style: TextStyle(color: color, fontSize: 12)),
                 ],
               ),
             ),
-            if (booked || noShow)
-              _action(
-                icon: Icons.how_to_reg_outlined,
-                text: 'Attended',
-                color: repLime,
-                onTap: () => _attended(a),
-              ),
-            if (booked && upcoming)
-              _action(
-                icon: Icons.swap_horiz,
-                text: 'Reschedule',
-                color: theme.colorScheme.primary,
-                onTap: () => _reschedule(a),
-              ),
-            if (booked)
-              _action(
-                icon: Icons.person_off_outlined,
-                text: 'No-show',
-                color: theme.colorScheme.error,
-                onTap: () => _noShow(a),
-              ),
+            ...actions,
           ],
         ),
       ),
     );
   }
 
-  /// A small button with the icon above its label, so two fit beside a name.
   Widget _action({
     required IconData icon,
     required String text,
     required Color color,
     required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 20, color: color),
-            const SizedBox(height: 2),
-            Text(text, style: TextStyle(color: color, fontSize: 11)),
-          ],
-        ),
-      ),
-    );
-  }
+  }) => ActionIconButton(icon: icon, text: text, color: color, onTap: onTap);
 }
 
 /// A free session of this coach that a booking can move to.

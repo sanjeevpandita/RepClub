@@ -357,18 +357,18 @@ class _CoachTodayScreenState extends State<CoachTodayScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  TextButton.icon(
-                    onPressed: () => _attended(r),
-                    icon: const Icon(Icons.how_to_reg_outlined, size: 20),
-                    label: const Text('Attended'),
+                  ActionIconButton(
+                    icon: Icons.how_to_reg_outlined,
+                    text: 'Done',
+                    color: actionGreen,
+                    onTap: () => _attended(r),
                   ),
                   if (r.status == 'BOOKED' && !now.isBefore(r.startsAt))
-                    TextButton.icon(
-                      onPressed: () => _noShow(r),
-                      style: TextButton.styleFrom(
-                          foregroundColor: theme.colorScheme.error),
-                      icon: const Icon(Icons.person_off_outlined, size: 20),
-                      label: const Text('No-show'),
+                    ActionIconButton(
+                      icon: Icons.person_off_outlined,
+                      text: 'NoShow',
+                      color: actionRed,
+                      onTap: () => _noShow(r),
                     ),
                 ],
               ),

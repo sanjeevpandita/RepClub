@@ -250,3 +250,44 @@ Future<Map<String, String>> nameMap(Iterable<String> ids) async {
 
 /// A member with this many credits left (or fewer) counts as running low.
 const lowCreditLimit = 3;
+
+/// Colours of the Done / Move / NoShow buttons on coach appointment rows.
+const actionGreen = Color(0xFF4CD964);
+const actionYellow = Color(0xFFFFD60A);
+const actionRed = Color(0xFFFF5A5F);
+
+/// A small button with the icon on top and its word underneath.
+class ActionIconButton extends StatelessWidget {
+  const ActionIconButton({
+    super.key,
+    required this.icon,
+    required this.text,
+    required this.color,
+    required this.onTap,
+  });
+  final IconData icon;
+  final String text;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 22, color: color),
+            const SizedBox(height: 2),
+            Text(text,
+                style: TextStyle(
+                    color: color, fontSize: 12, fontWeight: FontWeight.w600)),
+          ],
+        ),
+      ),
+    );
+  }
+}

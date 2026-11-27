@@ -29,6 +29,21 @@ String showStamp(String ts) {
   return '${showDate(d)} ${showTime(d)}';
 }
 
+/// Columns for a credit-history read: every column plus the start of the
+/// session a row belongs to (via its booking), when there is one.
+const creditHistoryColumns = '*, session:bookings(slot:slots(starts_at))';
+
+/// "Session 18/11/2026 12:00" for a credit row that belongs to a session
+/// (check-in, no-show, attended), or null. Falls back to the date alone when
+/// the session itself cannot be read.
+String? creditSessionLabel(Map<String, dynamic> r) {
+  final start = (r['session'] as Map?)?['slot']?['starts_at'] as String?;
+  if (start != null) return 'Session ${showStamp(start)}';
+  final day = r['attendance_date'] as String?;
+  if (day != null) return 'Session ${showIso(day)}';
+  return null;
+}
+
 void snack(BuildContext context, String message) =>
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
 

@@ -159,8 +159,7 @@ class _CreditsTab extends StatelessWidget {
         final uid = db.auth.currentUser!.id;
         final rows = (await db
                 .from('credit_transactions')
-                .select(
-                    'id, member_package_id, type, delta, reason_code, note, is_void, created_at')
+                .select(creditHistoryColumns)
                 .eq('member_id', uid)
                 .order('created_at', ascending: true)
                 .order('id', ascending: true) as List)
@@ -194,7 +193,8 @@ class _CreditsTab extends StatelessWidget {
                       : null,
                 ),
                 subtitle: Text([
-                  showStamp(t['created_at'] as String),
+                  ?creditSessionLabel(t),
+                  'Recorded ${showStamp(t['created_at'] as String)}',
                   if (t['reason_code'] != null)
                     reasonLabels[t['reason_code']] ?? t['reason_code'],
                   if ((t['note'] as String?)?.isNotEmpty == true) t['note'],

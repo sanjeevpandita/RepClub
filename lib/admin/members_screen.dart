@@ -850,7 +850,7 @@ class MemberCreditsTab extends StatelessWidget {
         for (var from = 0;; from += 1000) {
           final page = await db
               .from('credit_transactions')
-              .select()
+              .select(creditHistoryColumns)
               .eq('member_id', memberId)
               .order('created_at', ascending: true)
               .order('id', ascending: true)
@@ -967,7 +967,8 @@ class MemberCreditsTab extends StatelessWidget {
             : null,
       ),
       subtitle: Text([
-        showStamp(r['created_at'] as String),
+        ?creditSessionLabel(r),
+        'Recorded ${showStamp(r['created_at'] as String)}',
         if (reason != null) reasonLabels[reason] ?? reason,
         if (note != null && note.isNotEmpty) note,
         'By ${r['by']}',
